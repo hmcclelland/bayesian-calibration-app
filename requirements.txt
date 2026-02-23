@@ -2,6 +2,8 @@ streamlit
 numpy
 pandas
 matplotlib
+
 sympy
-scipy
-cmdstanpy
+scipy<1.14
+pymc>=5.10,<5.16
+arviz>=0.16,<0.18

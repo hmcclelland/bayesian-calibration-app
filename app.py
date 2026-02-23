@@ -1,6 +1,7 @@
 """
 Bayesian Calibration & Inverse Prediction — Streamlit App
-==========================================================
+=======================
+===================================
 Run locally:  streamlit run app.py
 """
 
@@ -8,41 +9,10 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import tempfile, os, pathlib, subprocess, sys
+import pathlib
 from typing import Dict, Optional
 from equation_engine import EquationModel
 from app_config import MODE
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Auto-install CmdStan on first cloud deploy
-# ══════════════════════════════════════════════════════════════════════════════
-CMDSTAN_OK = False
-
-def ensure_cmdstan():
-    """Install CmdStan if needed. Returns True on success."""
-    global CMDSTAN_OK
-    if CMDSTAN_OK:
-        return True
-    import cmdstanpy
-    try:
-        cmdstanpy.cmdstan_path()
-        CMDSTAN_OK = True
-        return True
-    except ValueError:
-        pass
-    # Need to install
-    try:
-        cmdstanpy.install_cmdstan(verbose=True, overwrite=True)
-        CMDSTAN_OK = True
-        return True
-    except Exception as exc:
-        st.error(
-            f"❌ Failed to install CmdStan: {exc}\n\n"
-            "This usually means Streamlit Cloud ran out of memory or time. "
-            "Try rebooting the app from your Streamlit Cloud dashboard, "
-            "or run the app locally instead (see README)."
-        )
-        return False
 
 ALLOW_UPLOAD = (MODE == "local")
 
@@ -51,14 +21,14 @@ ALLOW_UPLOAD = (MODE == "local")
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Bayesian Calibration Tool",
-    page_icon="🔬",
+    page_icon="\U0001f52c",
     layout="wide",
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Header + editable description from description.md
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("🔬 Bayesian Calibration & Inverse Prediction")
+st.title("\U0001f52c Bayesian Calibration & Inverse Prediction")
 
 _desc_path = pathlib.Path(__file__).parent / "description.md"
 if _desc_path.exists():
@@ -73,13 +43,13 @@ else:
 # Sidebar — MCMC settings
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.header("⚙️ MCMC Settings")
+    st.header("\u2699\ufe0f MCMC Settings")
     chains = st.number_input("Chains", 1, 8, 4)
     iter_sampling = st.number_input(
         "Iterations (sampling)", 500, 10000, 2000, step=500
     )
     iter_warmup = st.number_input(
-        "Iterations (warm-up)", 200, 5000, 1000, step=200
+        "Iterations (warm-up / tune)", 200, 5000, 1000, step=200
     )
     seed = st.number_input("Random seed", value=42)
     credible_level = st.slider(
@@ -87,7 +57,7 @@ with st.sidebar:
         step=0.01,
     )
     st.divider()
-    st.header("📖 Equation syntax")
+    st.header("\U0001f4d6 Equation syntax")
     st.markdown("""
 **Rules:**
 - `x` = independent variable
@@ -113,15 +83,15 @@ y = a * (1 - exp(-b*x))
     """)
     if MODE == "local":
         st.divider()
-        st.success("🖥️ Running in **local** mode — CSV upload enabled.")
+        st.success("\U0001f5a5\ufe0f Running in **local** mode -- CSV upload enabled.")
     else:
         st.divider()
-        st.info("☁️ Running in **cloud** mode — manual data entry only.")
+        st.info("\u2601\ufe0f Running in **cloud** mode -- manual data entry only.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Equation Editor (text input + live LaTeX preview)
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("① Define Your Calibration Equation")
+st.header("\u2460 Define Your Calibration Equation")
 st.markdown(
     "Type your equation below using Python-style syntax. "
     "Any symbol other than `x` is treated as a parameter to estimate. "
@@ -129,7 +99,7 @@ st.markdown(
 )
 
 equation_input = st.text_input(
-    "✏️ **Equation**",
+    "\u270f\ufe0f **Equation**",
     value="y = a + b*x",
     placeholder="e.g.  y = a + b*x   or   y = a * exp(b*x) + c",
     help="Type any equation of the form  y = f(x).  "
@@ -145,27 +115,27 @@ if equation_input.strip():
 
         st.latex(eq_model.latex_str())
         param_str = ", ".join(
-            [f"**{p}**" for p in eq_model.param_names] + ["**σ** (noise)"]
+            [f"**{p}**" for p in eq_model.param_names] + ["**sigma** (noise)"]
         )
         st.markdown(f"Parameters to estimate: {param_str}")
         if eq_model.has_symbolic_inverse:
-            st.markdown("✅ **Symbolic inverse found:**")
+            st.markdown("\u2705 **Symbolic inverse found:**")
             st.latex(eq_model.inverse_latex_str())
         else:
             st.markdown(
-                "⚠️ No closed-form inverse — will use **numerical root-finding** "
+                "\u26a0\ufe0f No closed-form inverse -- will use **numerical root-finding** "
                 "(works fine, just slower for large datasets)."
             )
 
     except ValueError as exc:
-        st.error(f"❌ {exc}")
+        st.error(f"\u274c {exc}")
     except Exception as exc:
-        st.error(f"❌ Unexpected error parsing equation: {exc}")
+        st.error(f"\u274c Unexpected error parsing equation: {exc}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — Calibration Data
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("② Calibration Data")
+st.header("\u2461 Calibration Data")
 st.markdown("Provide paired **(X, Y)** calibration measurements.")
 
 cal_df: Optional[pd.DataFrame] = None
@@ -211,9 +181,9 @@ else:
         if len(x_vals) == len(y_vals) and len(x_vals) >= 2:
             cal_df = pd.DataFrame({"X": x_vals, "Y": y_vals})
         else:
-            st.warning("X and Y must have the same number of values (≥ 2).")
+            st.warning("X and Y must have the same number of values (>= 2).")
     except ValueError:
-        st.error("Could not parse values — make sure each line is a number.")
+        st.error("Could not parse values -- make sure each line is a number.")
 
 if cal_df is not None:
     st.subheader("Calibration data preview")
@@ -233,7 +203,7 @@ if cal_df is not None:
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 3 — New Y values
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("③ New Y Values for Inverse Prediction")
+st.header("\u2462 New Y Values for Inverse Prediction")
 st.markdown(
     "Enter the **Y** values for which you want to estimate the "
     "corresponding **X**."
@@ -276,12 +246,12 @@ else:
             [float(v) for v in y_new_text.strip().split("\n") if v.strip()]
         )
     except ValueError:
-        st.error("Could not parse — enter one number per line.")
+        st.error("Could not parse -- enter one number per line.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 4 — Run
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("④ Run Calibration & Inverse Prediction")
+st.header("\u2463 Run Calibration & Inverse Prediction")
 
 run_ready = (
     eq_model is not None
@@ -292,64 +262,54 @@ run_ready = (
 
 if not run_ready:
     st.info(
-        "Complete steps ①–③ above (valid equation, calibration data, "
+        "Complete steps 1-3 above (valid equation, calibration data, "
         "and new Y values), then click **Run**."
     )
 else:
-    if st.button("�� Run", type="primary", use_container_width=True):
+    if st.button("Run", type="primary", use_container_width=True):
 
-        # ── Ensure CmdStan is available ───────────────────────────────
-        with st.spinner("Checking Stan backend…"):
-            if not ensure_cmdstan():
-                st.stop()
-
-        from cmdstanpy import CmdStanModel
+        import pymc as pm
+        import arviz as az
 
         x_cal = cal_df["X"].values.astype(float)
         y_cal = cal_df["Y"].values.astype(float)
 
-        # ── Compile Stan model ────────────────────────────────────────
-        with st.spinner("Compiling Stan model…"):
-            stan_code = eq_model.stan_code()
-            tmp = tempfile.NamedTemporaryFile(
-                suffix=".stan", delete=False, mode="w"
-            )
-            tmp.write(stan_code)
-            tmp.close()
+        # -- Build PyMC model ------------------------------------------------
+        with st.spinner("Building model..."):
             try:
-                stan_model = CmdStanModel(stan_file=tmp.name)
+                model = eq_model.build_pymc_model(x_cal, y_cal)
             except Exception as exc:
-                st.error(f"❌ Stan compilation failed: {exc}")
+                st.error(f"\u274c Model build failed: {exc}")
                 st.stop()
 
-        # ── Sample posterior ──────────────────────────────────────────
-        with st.spinner("Sampling posterior (this may take a moment)…"):
+        # -- Sample posterior -------------------------------------------------
+        with st.spinner("Sampling posterior (this may take a moment)..."):
             try:
-                fit = stan_model.sample(
-                    data={
-                        "N": len(x_cal),
-                        "x": x_cal.tolist(),
-                        "y": y_cal.tolist(),
-                    },
-                    chains=int(chains),
-                    iter_sampling=int(iter_sampling),
-                    iter_warmup=int(iter_warmup),
-                    seed=int(seed),
-                )
+                with model:
+                    trace = pm.sample(
+                        draws=int(iter_sampling),
+                        tune=int(iter_warmup),
+                        chains=int(chains),
+                        random_seed=int(seed),
+                        progressbar=False,
+                        return_inferencedata=True,
+                    )
             except Exception as exc:
-                st.error(f"❌ MCMC sampling failed: {exc}")
+                st.error(f"\u274c MCMC sampling failed: {exc}")
                 st.stop()
 
-        # ── Extract posterior draws ───────────────────────────────────
+        # -- Extract posterior draws ------------------------------------------
         posterior: Dict[str, np.ndarray] = {}
-        for par in eq_model.param_names + ["sigma"]:
-            posterior[par] = fit.stan_variable(par).flatten()
+        for par in eq_model.param_names:
+            posterior[par] = trace.posterior[par].values.flatten()
+        posterior["sigma"] = trace.posterior["sigma"].values.flatten()
 
-        # ── MCMC Summary ─────────────────────────────────────────────
+        # -- MCMC Summary -----------------------------------------------------
         st.subheader("MCMC Summary")
-        st.dataframe(fit.summary(), use_container_width=True)
+        summary_df = az.summary(trace, var_names=eq_model.param_names + ["sigma"])
+        st.dataframe(summary_df, use_container_width=True)
 
-        # ── Calibration fit plot ──────────────────────────────────────
+        # -- Calibration fit plot ----------------------------------------------
         st.subheader("Calibration Fit")
         fig_fit, ax_fit = plt.subplots(figsize=(9, 5))
         ax_fit.scatter(
@@ -375,7 +335,7 @@ else:
         st.pyplot(fig_fit)
         plt.close(fig_fit)
 
-        # ── Inverse prediction ────────────────────────────────────────
+        # -- Inverse prediction -----------------------------------------------
         st.subheader("Inverse Predictions")
         alpha_tail = (1 - credible_level) / 2
         sigma_draws = posterior["sigma"]
@@ -387,7 +347,7 @@ else:
         inv_rows = []
         all_draws = []
 
-        progress_bar = st.progress(0, text="Computing inverse predictions…")
+        progress_bar = st.progress(0, text="Computing inverse predictions...")
         for yi, y_val in enumerate(y_new_vals):
             y_star = y_val + np.random.randn(n_draws) * sigma_draws
             x_draws = eq_model.inverse_numpy(
@@ -430,13 +390,13 @@ else:
 
         csv_buf = df_result.to_csv(index=False)
         st.download_button(
-            "📥 Download results as CSV",
+            "Download results as CSV",
             csv_buf,
             file_name="inverse_predictions.csv",
             mime="text/csv",
         )
 
-        # ── Posterior histograms ──────────────────────────────────────
+        # -- Posterior histograms ----------------------------------------------
         st.subheader("Posterior Distributions of X")
         n_new = len(y_new_vals)
         n_cols = min(n_new, 3)
@@ -485,17 +445,13 @@ else:
         st.pyplot(fig_inv)
         plt.close(fig_inv)
 
-        # ── Show Stan code ────────────────────────────────────────────
-        with st.expander("📄 View generated Stan code"):
-            st.code(stan_code, language="stan")
-
 # ══════════════════════════════════════════════════════════════════════════════
 # Footer
 # ══════════════════════════════════════════════════════════════════════════════
 st.divider()
 st.markdown(
-    "<center><small>Bayesian Calibration Tool · Powered by "
-    "<a href='https://mc-stan.org/'>Stan</a>, "
+    "<center><small>Bayesian Calibration Tool -- Powered by "
+    "<a href='https://www.pymc.io/'>PyMC</a>, "
     "<a href='https://www.sympy.org/'>SymPy</a> & "
     "<a href='https://streamlit.io/'>Streamlit</a></small></center>",
     unsafe_allow_html=True,

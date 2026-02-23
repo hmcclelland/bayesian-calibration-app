@@ -1,11 +1,12 @@
 """
-equation_engine.py
+
+.py
 ==================
 SymPy-powered symbolic equation parser for Bayesian calibration.
 
 Accepts any user-typed equation string like "y = a + b*x" and produces:
   - LaTeX rendering
-  - Stan model code (for CmdStanPy MCMC)
+  - PyMC model (for Bayesian MCMC)
   - NumPy-callable forward function
   - Symbolic or numerical inverse function
 """
@@ -15,83 +16,9 @@ import sympy as sp
 from typing import Dict, List, Tuple, Optional
 
 
-# ---------------------------------------------------------------------------
-# SymPy -> Stan code converter
-# ---------------------------------------------------------------------------
-
-def _sympy_to_stan(expr: sp.Expr, x_indexed: str = "x[i]") -> str:
-    """Convert a SymPy expression to a valid Stan code string."""
-    x_sym = sp.Symbol("x")
-
-    STAN_FUNCS = {
-        sp.exp: "exp",
-        sp.log: "log",
-        sp.sqrt: "sqrt",
-        sp.Abs: "fabs",
-        sp.sin: "sin",
-        sp.cos: "cos",
-        sp.tan: "tan",
-        sp.asin: "asin",
-        sp.acos: "acos",
-        sp.atan: "atan",
-        sp.sinh: "sinh",
-        sp.cosh: "cosh",
-        sp.tanh: "tanh",
-    }
-
-    def _convert(e):
-        if e == x_sym:
-            return x_indexed
-        if isinstance(e, sp.Symbol):
-            return str(e)
-        if isinstance(e, sp.Number):
-            if isinstance(e, sp.Integer):
-                return str(int(e))
-            return f"{float(e)}"
-        if isinstance(e, sp.Rational) and not isinstance(e, sp.Integer):
-            return f"({float(e)})"
-        if (isinstance(e, sp.Mul)
-                and e.args[0] == sp.Integer(-1)
-                and len(e.args) == 2):
-            return f"(-{_convert(e.args[1])})"
-        if isinstance(e, sp.Pow):
-            base = _convert(e.args[0])
-            exp_part = _convert(e.args[1])
-            return f"pow({base}, {exp_part})"
-        if isinstance(e, sp.Function):
-            for sym_func, stan_name in STAN_FUNCS.items():
-                if isinstance(e, sym_func):
-                    args_str = ", ".join(_convert(a) for a in e.args)
-                    return f"{stan_name}({args_str})"
-            fname = type(e).__name__.lower()
-            args_str = ", ".join(_convert(a) for a in e.args)
-            return f"{fname}({args_str})"
-        if isinstance(e, sp.Add):
-            parts = [_convert(a) for a in e.args]
-            result = parts[0]
-            for p in parts[1:]:
-                if p.startswith("(-"):
-                    result += f" - {p[2:-1]}"
-                elif p.startswith("-"):
-                    result += f" - {p[1:]}"
-                else:
-                    result += f" + {p}"
-            return f"({result})"
-        if isinstance(e, sp.Mul):
-            parts = [_convert(a) for a in e.args]
-            return " * ".join(parts)
-        return str(e).replace("**", "^")
-
-    return _convert(expr)
-
-
-# ---------------------------------------------------------------------------
-# EquationModel
-# ---------------------------------------------------------------------------
-
 class EquationModel:
     """Parse a user-supplied equation string and produce everything needed
-    for Bayesian calibration: Stan code, NumPy forward/inverse functions."""
+    for Bayesian calibration: PyMC model, NumPy forward/inverse functions."""
 
     _RESERVED = {"x", "y", "pi", "e", "E", "I", "N", "sigma"}
 
@@ -271,44 +198,43 @@ class EquationModel:
 
         return result
 
-    # ---- Stan code generation --------------------------------------------
-    def stan_mu_expr(self, x_indexed: str = "x[i]") -> str:
-        return _sympy_to_stan(self.rhs_expr, x_indexed=x_indexed)
+    # ---- PyMC model builder ----------------------------------------------
+    def build_pymc_model(self, x_cal, y_cal):
+        """Build and return a PyMC model for this equation.
 
-    def stan_code(self) -> str:
-        mu_expr = self.stan_mu_expr("x[i]")
-        param_lines = [f"  real {p};" for p in self.param_names]
-        param_lines.append("  real<lower=0> sigma;")
-        param_block = "\n".join(param_lines)
+        Parameters get Normal(0, 10) priors; sigma gets HalfNormal(10).
+        """
+        import pymc as pm
+        import pytensor.tensor as pt
 
-        prior_lines = [f"  {p} ~ normal(0, 10);" for p in self.param_names]
-        prior_lines.append("  sigma ~ exponential(1);")
-        prior_block = "\n".join(prior_lines)
-
-        return (
-            "data {\n"
-            "  int<lower=1> N;\n"
-            "  vector[N] x;\n"
-            "  vector[N] y;\n"
-            "}\n"
-            "parameters {\n"
-            f"{param_block}\n"
-            "}\n"
-            "model {\n"
-            f"{prior_block}\n"
-            "  for (i in 1:N)\n"
-            f"    y[i] ~ normal({mu_expr}, sigma);\n"
-            "}\n"
-            "generated quantities {\n"
-            "  vector[N] y_rep;\n"
-            "  vector[N] log_lik;\n"
-            "  for (i in 1:N) {\n"
-            f"    real mu_i = {mu_expr};\n"
-            "    y_rep[i] = normal_rng(mu_i, sigma);\n"
-            "    log_lik[i] = normal_lpdf(y[i] | mu_i, sigma);\n"
-            "  }\n"
-            "}\n"
+        # Build a pytensor-compatible forward function from SymPy
+        pt_mapping = {
+            "exp": pt.exp, "log": pt.log, "sqrt": pt.sqrt,
+            "sin": pt.sin, "cos": pt.cos, "tan": pt.tan,
+            "sinh": pt.sinh, "cosh": pt.cosh, "tanh": pt.tanh,
+            "Abs": pt.abs,
+        }
+        all_args = [self.x_sym] + self.param_symbols
+        pt_forward = sp.lambdify(
+            all_args, self.rhs_expr,
+            modules=[pt_mapping, "numpy"],
         )
+
+        with pm.Model() as model:
+            x_data = pm.Data("x_data", x_cal)
+
+            param_vars = {}
+            for p_name in self.param_names:
+                param_vars[p_name] = pm.Normal(p_name, mu=0, sigma=10)
+
+            sigma = pm.HalfNormal("sigma", sigma=10)
+
+            args = [x_data] + [param_vars[p] for p in self.param_names]
+            mu = pm.Deterministic("mu", pt_forward(*args))
+
+            pm.Normal("y_obs", mu=mu, sigma=sigma, observed=y_cal)
+
+        return model
 
     def __repr__(self):
         return f"EquationModel('{self.equation_str}')  params={self.param_names}"

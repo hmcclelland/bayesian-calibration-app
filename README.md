@@ -1,12 +1,12 @@
 # 🔬 Bayesian Calibration & Inverse Prediction Tool
 
-Define any calibration equation, fit it to data with Bayesian MCMC (Stan), and predict **X** from new **Y** values with full uncertainty quantification.
+Define any calibration equation, fit it to data with Bayesian MCMC (PyMC), and predict **X** from new **Y** values with full uncertainty quantification.
 
 ## 🌐 Use the Web App
 
 The public web version is hosted at:
 
-**👉 [https://your-username.streamlit.app](https://your-username.streamlit.app)**
+**�� [https://your-username.streamlit.app](https://your-username.streamlit.app)**
 
 *(Update this link after deploying — see Deployment section below)*
 
@@ -29,9 +29,8 @@ chmod +x setup.sh
 
 This will automatically:
 1. Create a conda environment with all dependencies
-2. Install the Stan compiler
-3. Enable CSV upload mode
-4. Open the app in your browser at http://localhost:8501
+2. Enable CSV upload mode
+3. Open the app in your browser at http://localhost:8501
 
 ### Option B: Manual setup
 
@@ -49,13 +48,10 @@ conda activate bayes-cal
 # 3. Install Python packages
 pip install -r requirements.txt
 
-# 4. Install the Stan compiler (takes a few minutes, only needed once)
-python -c "import cmdstanpy; cmdstanpy.install_cmdstan()"
-
-# 5. Enable local mode (allows CSV uploads)
+# 4. Enable local mode (allows CSV uploads)
 # Open app_config.py and change:  MODE = "local"
 
-# 6. Launch the app
+# 5. Launch the app
 streamlit run app.py
 ```
 
@@ -69,12 +65,10 @@ Then open http://localhost:8501 in your browser.
 bayesian-calibration-app/
 ├── app.py               # Main Streamlit app
 ├── app_config.py        # MODE = "cloud" or "local"
-├── equation_engine.py   # SymPy symbolic equation parser
+├── equation_engine.py   # SymPy symbolic equation parser + PyMC model builder
 ├── description.md       # ← Edit this to change the description on the page
 ├── requirements.txt     # Python dependencies
-├── packages.txt         # System dependencies (for Streamlit Cloud)
 ├── setup.sh             # One-click local setup script
-├── install_cmdstan.py   # CmdStan installer helper
 └── .streamlit/
     └── config.toml      # Streamlit theme config
 ```
@@ -129,7 +123,7 @@ This disables file uploads on the public web version.
 4. Select your repository, branch `main`, main file `app.py`
 5. Click **Deploy**
 
-The first deploy takes ~5 minutes (Stan compiler needs to build). Subsequent loads are fast.
+The first deploy takes ~2-3 minutes while PyMC installs. Subsequent loads are fast.
 
 ### Step 4 — Update the link
 
@@ -149,8 +143,7 @@ Once deployed, update the URL at the top of this README.
 ## 📖 How It Works
 
 1. **Type any equation** like `y = a + b*x` or `y = a * exp(b*x) + c`
-2. **SymPy** parses it, identifies parameters, renders LaTeX, and generates Stan code automatically
-3. **Stan** (Hamiltonian Monte Carlo) samples the full posterior distribution of all parameters
+2. **SymPy** parses it, identifies parameters, renders LaTeX, and builds a PyMC model automatically
+3. **PyMC** (NUTS / Hamiltonian Monte Carlo) samples the full posterior distribution of all parameters
 4. **Inverse prediction**: for each new Y value and each posterior draw, the equation is inverted (symbolically if possible, numerically otherwise) to get a distribution over X
 5. **Credible intervals** are read from quantiles of the resulting X distribution
-

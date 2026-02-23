@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# ============================================================================
+# 
+
+============================================================================
 # Bayesian Calibration App — One-click local setup
 # ============================================================================
 # Usage:
@@ -7,10 +9,9 @@
 #   ./setup.sh
 #
 # This script will:
-#   1. Create a conda environment with all dependencies
-#   2. Install CmdStan (the Stan compiler)
-#   3. Set the app to "local" mode (CSV uploads enabled)
-#   4. Launch the app in your browser
+#   1. Create a conda environment with all dependencies (including PyMC)
+#   2. Set the app to "local" mode (CSV uploads enabled)
+#   3. Launch the app in your browser
 # ============================================================================
 
 set -e
@@ -43,17 +44,11 @@ else
     conda run -n "$ENV_NAME" pip install -r "$SCRIPT_DIR/requirements.txt"
 fi
 
-# --- Install CmdStan if needed ---
-echo "🔧 Checking CmdStan..."
+# --- Verify PyMC ---
+echo "🔧 Verifying PyMC installation..."
 conda run -n "$ENV_NAME" python -c "
-import cmdstanpy
-try:
-    path = cmdstanpy.cmdstan_path()
-    print(f'✅ CmdStan already installed at: {path}')
-except ValueError:
-    print('📦 Installing CmdStan (this takes a few minutes)...')
-    cmdstanpy.install_cmdstan()
-    print('✅ CmdStan installed.')
+import pymc as pm
+print(f'✅ PyMC {pm.__version__} installed successfully.')
 "
 
 # --- Set to local mode ---
