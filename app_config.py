@@ -11,4 +11,4 @@ Change MODE to control how the app behaves:
               File uploads are ENABLED (CSV upload available).
 """
 
-MODE = "local"
+MODE = "cloud"
