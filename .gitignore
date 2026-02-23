@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.stan.hpp
+*.stan.d
+*.stan.o
+.cmdstan/
+*.csv
+.streamlit/secrets.toml
