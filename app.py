@@ -8,8 +8,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import tempfile, os, pathlib
-from cmdstanpy import CmdStanModel
+import tempfile, os, pathlib, subprocess, sys
 from typing import Dict, Optional
 from equation_engine import EquationModel
 from app_config import MODE
@@ -17,13 +16,33 @@ from app_config import MODE
 # ══════════════════════════════════════════════════════════════════════════════
 # Auto-install CmdStan on first cloud deploy
 # ══════════════════════════════════════════════════════════════════════════════
-if MODE == "cloud":
+CMDSTAN_OK = False
+
+def ensure_cmdstan():
+    """Install CmdStan if needed. Returns True on success."""
+    global CMDSTAN_OK
+    if CMDSTAN_OK:
+        return True
     import cmdstanpy
     try:
         cmdstanpy.cmdstan_path()
+        CMDSTAN_OK = True
+        return True
     except ValueError:
-        with st.spinner("First-time setup: compiling Stan backend (≈2 min)…"):
-            cmdstanpy.install_cmdstan()
+        pass
+    # Need to install
+    try:
+        cmdstanpy.install_cmdstan(verbose=True, overwrite=True)
+        CMDSTAN_OK = True
+        return True
+    except Exception as exc:
+        st.error(
+            f"❌ Failed to install CmdStan: {exc}\n\n"
+            "This usually means Streamlit Cloud ran out of memory or time. "
+            "Try rebooting the app from your Streamlit Cloud dashboard, "
+            "or run the app locally instead (see README)."
+        )
+        return False
 
 ALLOW_UPLOAD = (MODE == "local")
 
@@ -278,6 +297,14 @@ if not run_ready:
     )
 else:
     if st.button("�� Run", type="primary", use_container_width=True):
+
+        # ── Ensure CmdStan is available ───────────────────────────────
+        with st.spinner("Checking Stan backend…"):
+            if not ensure_cmdstan():
+                st.stop()
+
+        from cmdstanpy import CmdStanModel
+
         x_cal = cal_df["X"].values.astype(float)
         y_cal = cal_df["Y"].values.astype(float)
 
@@ -289,21 +316,29 @@ else:
             )
             tmp.write(stan_code)
             tmp.close()
-            stan_model = CmdStanModel(stan_file=tmp.name)
+            try:
+                stan_model = CmdStanModel(stan_file=tmp.name)
+            except Exception as exc:
+                st.error(f"❌ Stan compilation failed: {exc}")
+                st.stop()
 
         # ── Sample posterior ──────────────────────────────────────────
         with st.spinner("Sampling posterior (this may take a moment)…"):
-            fit = stan_model.sample(
-                data={
-                    "N": len(x_cal),
-                    "x": x_cal.tolist(),
-                    "y": y_cal.tolist(),
-                },
-                chains=int(chains),
-                iter_sampling=int(iter_sampling),
-                iter_warmup=int(iter_warmup),
-                seed=int(seed),
-            )
+            try:
+                fit = stan_model.sample(
+                    data={
+                        "N": len(x_cal),
+                        "x": x_cal.tolist(),
+                        "y": y_cal.tolist(),
+                    },
+                    chains=int(chains),
+                    iter_sampling=int(iter_sampling),
+                    iter_warmup=int(iter_warmup),
+                    seed=int(seed),
+                )
+            except Exception as exc:
+                st.error(f"❌ MCMC sampling failed: {exc}")
+                st.stop()
 
         # ── Extract posterior draws ───────────────────────────────────
         posterior: Dict[str, np.ndarray] = {}
@@ -395,7 +430,7 @@ else:
 
         csv_buf = df_result.to_csv(index=False)
         st.download_button(
-            "�� Download results as CSV",
+            "📥 Download results as CSV",
             csv_buf,
             file_name="inverse_predictions.csv",
             mime="text/csv",
