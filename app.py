@@ -42,6 +42,12 @@ _VARIANCE_PRESETS = {
     "Proportional to mean (constant CV)": "sd = mu * sigma",
 }
 
+# ── Session-state defaults (must be set before any widget that uses these keys)
+if "mean_eq_input" not in st.session_state:
+    st.session_state["mean_eq_input"] = _MEAN_PRESETS["Custom"]
+if "var_eq_input" not in st.session_state:
+    st.session_state["var_eq_input"] = _VARIANCE_PRESETS["Custom"]
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Page config
 # ══════════════════════════════════════════════════════════════════════════════
@@ -123,6 +129,17 @@ y = b1 + b2 / (1 + (x/b3)**(-b4))
 # ══════════════════════════════════════════════════════════════════════════════
 st.header("Define Your Calibration Model")
 
+# ── Callbacks to auto-populate the equation text inputs ───────────────────
+def _on_mean_preset_change():
+    """When the mean-model preset dropdown changes, update the equation box."""
+    chosen = st.session_state["mean_preset"]
+    st.session_state["mean_eq_input"] = _MEAN_PRESETS[chosen]
+
+def _on_var_preset_change():
+    """When the variance-model preset dropdown changes, update the equation box."""
+    chosen = st.session_state["var_preset"]
+    st.session_state["var_eq_input"] = _VARIANCE_PRESETS[chosen]
+
 col_mean, col_var = st.columns(2)
 
 with col_mean:
@@ -133,12 +150,11 @@ with col_mean:
         index=0,  # Custom is default
         help="Choose a common functional form, or select Custom to write your own.",
         key="mean_preset",
+        on_change=_on_mean_preset_change,
     )
     # When a preset is chosen, pre-fill the equation; Custom is editable
-    _mean_default = _MEAN_PRESETS[mean_preset]
     equation_input = st.text_input(
         "✏️ **Equation**",
-        value=_mean_default,
         placeholder="e.g.  y = a + b*x",
         help="Type any equation of the form  y = f(x).  "
              "Letters other than x become parameters to estimate.",
@@ -154,11 +170,10 @@ with col_var:
         help="Choose how measurement noise scales with the predicted mean, "
              "or select Custom to write your own.",
         key="var_preset",
+        on_change=_on_var_preset_change,
     )
-    _var_default = _VARIANCE_PRESETS[var_preset]
     variance_eq_input = st.text_input(
         "✏️ **Variance equation**  (`sd = g(mu, sigma, ...)`)",
-        value=_var_default,
         placeholder="e.g.  sd = sigma",
         help="Write the noise standard deviation as a function of mu "
              "(predicted mean) and sigma (base noise scale). Any other "
@@ -396,10 +411,11 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
     st.markdown("#### MCMC Settings")
     mcmc_c1, mcmc_c2, mcmc_c3, mcmc_c4 = st.columns(4)
     with mcmc_c1:
-        chains = st.number_input("Chains", 1, 8, 4, key="adv_chains")
-    with mcmc_c2:
-        iter_sampling = st.number_input("Draws", 500, 10000, 2000, step=500,
+        iter_sampling = st.number_input("Draws", 200, 5000, 1000, step=200,
                                         key="adv_draws")
+    with mcmc_c2:
+        chains = st.number_input("Chains", 1, 8, 2, step=1,
+                                 key="adv_chains")
     with mcmc_c3:
         iter_warmup = st.number_input("Warm-up", 200, 5000, 1000, step=200,
                                       key="adv_warmup")

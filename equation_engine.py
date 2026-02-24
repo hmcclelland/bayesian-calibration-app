@@ -16,7 +16,36 @@ any other symbol becomes a learnable parameter.
 
 import numpy as np
 import sympy as sp
+import re
 from typing import Dict, List, Tuple, Optional
+
+
+# ── Known function names that should NOT be treated as user symbols ───────
+_KNOWN_FUNCTIONS = {
+    "exp", "log", "sqrt", "sin", "cos", "tan",
+    "sinh", "cosh", "tanh", "abs", "Abs",
+}
+
+# ── Known constants / reserved words ──────────────────────────────────────
+_KNOWN_CONSTANTS = {"pi", "e", "E", "I", "N"}
+
+
+def _pre_declare_symbols(rhs: str, local_dict: dict) -> dict:
+    """Scan *rhs* for multi-character identifiers (e.g. ``b1``, ``alpha``)
+    and add them to *local_dict* as SymPy Symbols **before** parsing.
+
+    This prevents ``implicit_multiplication_application`` from splitting
+    tokens like ``b1`` into ``b * 1`` or ``b2`` into ``b * 2``.
+
+    Returns the updated *local_dict* (mutated in-place for convenience).
+    """
+    # Find every identifier: a letter (or _) followed by letters/digits/_
+    tokens = set(re.findall(r'[A-Za-z_]\w*', rhs))
+    # Remove anything already in local_dict, known functions, and constants
+    already = set(local_dict.keys()) | _KNOWN_FUNCTIONS | _KNOWN_CONSTANTS
+    for tok in tokens - already:
+        local_dict[tok] = sp.Symbol(tok)
+    return local_dict
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -57,6 +86,7 @@ class VarianceModel:
         sigma_sym = sp.Symbol("sigma")
         local_dict = {"mu": mu_sym, "sigma": sigma_sym,
                       "e": sp.E, "pi": sp.pi}
+        local_dict = _pre_declare_symbols(rhs, local_dict)
         transformations = (
             sp.parsing.sympy_parser.standard_transformations
             + (
@@ -162,6 +192,7 @@ class EquationModel:
 
         x = sp.Symbol("x")
         local_dict = {"x": x, "e": sp.E, "pi": sp.pi}
+        local_dict = _pre_declare_symbols(rhs, local_dict)
         transformations = (
             sp.parsing.sympy_parser.standard_transformations
             + (
