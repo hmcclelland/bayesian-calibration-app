@@ -39,16 +39,12 @@ else:
     )
 
 # -- "Under the Hood" PDF link ---------------------------------------------
-_pdf_path = pathlib.Path(__file__).parent / "docs" / "derivation.pdf"
-if _pdf_path.exists():
-    with open(_pdf_path, "rb") as _pdf_file:
-        _pdf_bytes = _pdf_file.read()
-    import base64 as _b64
-    _pdf_b64 = _b64.b64encode(_pdf_bytes).decode()
+_pdf_static = pathlib.Path(__file__).parent / "static" / "derivation.pdf"
+if _pdf_static.exists():
     st.markdown(
-        f'📄 <a href="data:application/pdf;base64,{_pdf_b64}" '
-        f'target="_blank"><strong>Under the Hood</strong> — '
-        f'Mathematical derivation (PDF)</a>',
+        '📄 <a href="app/static/derivation.pdf" '
+        'target="_blank"><strong>Under the Hood</strong> — '
+        'Mathematical derivation (PDF)</a>',
         unsafe_allow_html=True,
     )
 else:

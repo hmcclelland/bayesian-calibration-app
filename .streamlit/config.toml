@@ -1,6 +1,7 @@
 [server]
 headless = true
 maxUploadSize = 50
+enableStaticServing = true
 
 [theme]
 primaryColor = "#4e8cff"
