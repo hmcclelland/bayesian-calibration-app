@@ -8,12 +8,134 @@ Accepts any user-typed equation string like "y = a + b*x" and produces:
   - PyMC model (for Bayesian MCMC)
   - NumPy-callable forward function
   - Symbolic or numerical inverse function
+
+Also provides a VarianceModel class that parses a custom variance equation
+of the form  ``sd = g(mu, <params>)``  where *mu* is the predicted mean and
+any other symbol becomes a learnable parameter.
 """
 
 import numpy as np
 import sympy as sp
 from typing import Dict, List, Tuple, Optional
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Variance-model parser
+# ══════════════════════════════════════════════════════════════════════════════
+
+class VarianceModel:
+    """Parse a user-supplied variance equation of the form
+    ``sd = g(mu, ...)`` and produce a PyTensor-callable + LaTeX display.
+
+    The variable ``mu`` refers to the predicted mean from the mean model.
+    ``sigma`` is always implicitly available as the base noise scale.
+    Every other symbol becomes a learnable variance parameter.
+    """
+
+    _RESERVED = {"x", "y", "pi", "e", "E", "I", "N"}
+
+    def __init__(self, equation_str: str):
+        self.equation_str = equation_str.strip()
+        self._parse()
+        self._build_numpy_callable()
+
+    def _parse(self):
+        s = self.equation_str
+        if "=" in s:
+            lhs, rhs = s.split("=", 1)
+            lhs = lhs.strip()
+            rhs = rhs.strip()
+            if lhs.lower() != "sd":
+                raise ValueError(
+                    f"Left-hand side must be 'sd', got '{lhs}'. "
+                    f"Write: sd = g(mu, ...)"
+                )
+        else:
+            rhs = s
+
+        mu_sym = sp.Symbol("mu")
+        sigma_sym = sp.Symbol("sigma")
+        local_dict = {"mu": mu_sym, "sigma": sigma_sym,
+                      "e": sp.E, "pi": sp.pi}
+        transformations = (
+            sp.parsing.sympy_parser.standard_transformations
+            + (
+                sp.parsing.sympy_parser.implicit_multiplication_application,
+                sp.parsing.sympy_parser.convert_xor,
+            )
+        )
+        try:
+            self.rhs_expr = sp.parsing.sympy_parser.parse_expr(
+                rhs, local_dict=local_dict, transformations=transformations,
+            )
+        except Exception as exc:
+            raise ValueError(
+                f"Could not parse variance equation: {rhs!r}\n"
+                f"SymPy error: {exc}"
+            ) from exc
+
+        self.mu_sym = mu_sym
+        self.sigma_sym = sigma_sym
+        self.sd_sym = sp.Symbol("sd")
+
+        all_symbols = sorted(self.rhs_expr.free_symbols, key=lambda s: s.name)
+        # Variance-specific learnable parameters (everything except mu and sigma)
+        self.param_symbols = [s for s in all_symbols
+                              if s not in (mu_sym, sigma_sym)]
+        self.param_names = [s.name for s in self.param_symbols]
+
+        for pn in self.param_names:
+            if pn in self._RESERVED:
+                raise ValueError(
+                    f"'{pn}' is reserved. Choose a different name. "
+                    f"Reserved: {self._RESERVED}"
+                )
+
+        self.equation_sym = sp.Eq(self.sd_sym, self.rhs_expr)
+
+    def _build_numpy_callable(self):
+        """Build a NumPy-callable  sd = f(mu, sigma, *var_params)."""
+        all_args = [self.mu_sym, self.sigma_sym] + self.param_symbols
+        self._sd_lambda = sp.lambdify(all_args, self.rhs_expr, modules="numpy")
+
+    def sd_numpy(self, mu: np.ndarray, sigma: np.ndarray,
+                 var_params: Dict[str, np.ndarray]) -> np.ndarray:
+        """Evaluate sd = g(mu, sigma, ...) with NumPy arrays.
+
+        Parameters
+        ----------
+        mu : array-like
+            Predicted mean (or observed y used as a proxy).
+        sigma : array-like
+            Base noise scale draws.
+        var_params : dict
+            Draws for each variance-model parameter.
+
+        Returns
+        -------
+        np.ndarray
+            Standard-deviation values.
+        """
+        args = [mu, sigma] + [var_params[p] for p in self.param_names]
+        return np.abs(self._sd_lambda(*args))
+
+    # ── display ───────────────────────────────────────────────────────────
+    def latex_str(self) -> str:
+        return sp.latex(self.equation_sym)
+
+    def variance_latex_str(self) -> str:
+        """Return LaTeX for Var(y_i) = sd² form."""
+        return (r"\mathrm{Var}(y_i) \;=\; \left("
+                + sp.latex(self.rhs_expr) + r"\right)^2")
+
+    def __repr__(self):
+        return (f"VarianceModel('{self.equation_str}')  "
+                f"params={self.param_names}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Mean-model parser (original EquationModel)
+# ══════════════════════════════════════════════════════════════════════════════
 
 class EquationModel:
     """Parse a user-supplied equation string and produce everything needed
@@ -205,6 +327,7 @@ class EquationModel:
         prior_config: Optional[Dict] = None,
         log_scale_params: Optional[List[str]] = None,
         variance_model: str = "constant",
+        variance_eq: Optional[VarianceModel] = None,
     ):
         """Build and return a PyMC model for this equation.
 
@@ -214,21 +337,14 @@ class EquationModel:
             Calibration data.
         prior_config : dict, optional
             Per-parameter prior configuration.  Keys are parameter names
-            (including 'sigma' and optionally 'alpha').  Each value is a dict
-            with keys 'dist' ('Normal', 'HalfNormal', 'Uniform', 'LogNormal'),
-            and distribution-specific keyword arguments (e.g. mu, sigma, lower,
-            upper).  If a parameter is absent, sensible defaults are used.
+            (including 'sigma' and any variance-model parameters).
         log_scale_params : list[str], optional
-            Parameter names that should be modelled on the log scale
-            (i.e. the prior is placed on log(param) and the actual value
-            used in the forward model is exp(log_param)).  This enforces
-            positivity.
+            Parameter names modelled on the log scale.
         variance_model : str
-            One of:
-            - ``"constant"`` — homoscedastic, Var(y_i) = σ².
-            - ``"proportional"`` — constant-CV, Var(y_i) = μ_i² · σ².
-            - ``"gelman2004"`` — Gelman, Chew & Shnaidman (2004):
-              Var(y_i) = (μ_i / A)^{2α} · σ²  with learnable α.
+            ``"constant"`` | ``"proportional"`` | ``"gelman2004"`` |
+            ``"custom"``.
+        variance_eq : VarianceModel, optional
+            Required when *variance_model* is ``"custom"``.
         """
         import pymc as pm
         import pytensor.tensor as pt
@@ -238,10 +354,15 @@ class EquationModel:
         if log_scale_params is None:
             log_scale_params = []
 
-        _valid_vm = {"constant", "proportional", "gelman2004"}
+        _valid_vm = {"constant", "proportional", "gelman2004", "custom"}
         if variance_model not in _valid_vm:
             raise ValueError(
-                f"variance_model must be one of {_valid_vm}, got {variance_model!r}"
+                f"variance_model must be one of {_valid_vm}, "
+                f"got {variance_model!r}"
+            )
+        if variance_model == "custom" and variance_eq is None:
+            raise ValueError(
+                "variance_eq is required when variance_model='custom'"
             )
 
         # Build a pytensor-compatible forward function from SymPy
@@ -264,65 +385,97 @@ class EquationModel:
             for p_name in self.param_names:
                 cfg = prior_config.get(p_name, {})
                 if p_name in log_scale_params:
-                    # Prior is on log(param); actual param = exp(log_param)
                     log_cfg = cfg if cfg else {"dist": "Normal", "mu": 0, "sigma": 10}
                     log_var = _make_prior(f"log_{p_name}", log_cfg, pm)
-                    param_vars[p_name] = pm.Deterministic(p_name, pt.exp(log_var))
+                    param_vars[p_name] = pm.Deterministic(
+                        p_name, pt.exp(log_var))
                 else:
                     if not cfg:
                         cfg = {"dist": "Normal", "mu": 0, "sigma": 10}
                     param_vars[p_name] = _make_prior(p_name, cfg, pm)
 
-            # Noise scale σ_y
-            sigma_cfg = prior_config.get("sigma", {"dist": "HalfNormal", "sigma": 10})
+            # Noise scale σ
+            sigma_cfg = prior_config.get(
+                "sigma", {"dist": "HalfNormal", "sigma": 10})
             sigma = _make_prior("sigma", sigma_cfg, pm)
 
             # Forward model mean
             args = [x_data] + [param_vars[p] for p in self.param_names]
             mu = pm.Deterministic("mu", pt_forward(*args))
 
+            # ── Variance structure ────────────────────────────────────────
             if variance_model == "constant":
                 pm.Normal("y_obs", mu=mu, sigma=sigma, observed=y_cal)
 
             elif variance_model == "proportional":
-                # Constant-CV model: sd_i = |μ_i| · σ_y
                 sd = pt.abs(mu) * sigma
                 sd = pt.maximum(sd, 1e-8)
                 pm.Normal("y_obs", mu=mu, sigma=sd, observed=y_cal)
 
             elif variance_model == "gelman2004":
-                # Gelman et al. (2004) variance model:
-                #   Var(y_i) = (μ_i / A)^(2α) · σ_y²
-                # A = geometric mean of observed y (constant)
-                A = float(np.exp(np.mean(np.log(np.maximum(y_cal, 1e-12)))))
+                A = float(np.exp(
+                    np.mean(np.log(np.maximum(y_cal, 1e-12)))))
                 alpha_cfg = prior_config.get(
-                    "alpha", {"dist": "Uniform", "lower": 0.0, "upper": 2.0}
+                    "alpha",
+                    {"dist": "Uniform", "lower": 0.0, "upper": 2.0},
                 )
                 alpha = _make_prior("alpha", alpha_cfg, pm)
-                # sd_i = |μ_i / A|^α · σ_y   (use abs to handle edge cases)
                 sd = pt.abs(mu / A) ** alpha * sigma
                 sd = pt.maximum(sd, 1e-8)
+                pm.Normal("y_obs", mu=mu, sigma=sd, observed=y_cal)
+
+            elif variance_model == "custom":
+                # Build pytensor callable for the variance equation
+                var_param_vars = {}
+                for vp in variance_eq.param_names:
+                    vp_cfg = prior_config.get(vp, {})
+                    if not vp_cfg:
+                        vp_cfg = {"dist": "HalfNormal", "sigma": 2}
+                    var_param_vars[vp] = _make_prior(vp, vp_cfg, pm)
+
+                # lambdify:  sd = f(mu, sigma, <var_params...>)
+                var_args = ([variance_eq.mu_sym, variance_eq.sigma_sym]
+                            + variance_eq.param_symbols)
+                pt_var_fn = sp.lambdify(
+                    var_args, variance_eq.rhs_expr,
+                    modules=[pt_mapping, "numpy"],
+                )
+                var_call_args = ([mu, sigma]
+                                 + [var_param_vars[p]
+                                    for p in variance_eq.param_names])
+                sd = pt_var_fn(*var_call_args)
+                sd = pt.maximum(pt.abs(sd), 1e-8)
                 pm.Normal("y_obs", mu=mu, sigma=sd, observed=y_cal)
 
         return model
 
     def __repr__(self):
-        return f"EquationModel('{self.equation_str}')  params={self.param_names}"
+        return (f"EquationModel('{self.equation_str}')  "
+                f"params={self.param_names}")
 
 
 def _make_prior(name: str, cfg: Dict, pm_module):
     """Create a PyMC prior random variable from a config dict.
 
-    Supported distributions: Normal, HalfNormal, Uniform, LogNormal.
+    Supported distributions: Normal, HalfNormal, Uniform, LogNormal,
+    Exponential, Gamma.
     """
     dist = cfg.get("dist", "Normal")
     if dist == "Normal":
-        return pm_module.Normal(name, mu=cfg.get("mu", 0), sigma=cfg.get("sigma", 10))
+        return pm_module.Normal(
+            name, mu=cfg.get("mu", 0), sigma=cfg.get("sigma", 10))
     elif dist == "HalfNormal":
         return pm_module.HalfNormal(name, sigma=cfg.get("sigma", 10))
     elif dist == "Uniform":
-        return pm_module.Uniform(name, lower=cfg.get("lower", 0), upper=cfg.get("upper", 1))
+        return pm_module.Uniform(
+            name, lower=cfg.get("lower", 0), upper=cfg.get("upper", 1))
     elif dist == "LogNormal":
-        return pm_module.Lognormal(name, mu=cfg.get("mu", 0), sigma=cfg.get("sigma", 1))
+        return pm_module.Lognormal(
+            name, mu=cfg.get("mu", 0), sigma=cfg.get("sigma", 1))
+    elif dist == "Exponential":
+        return pm_module.Exponential(name, lam=cfg.get("lam", 1))
+    elif dist == "Gamma":
+        return pm_module.Gamma(
+            name, alpha=cfg.get("alpha", 2), beta=cfg.get("beta", 1))
     else:
         raise ValueError(f"Unsupported prior distribution: {dist}")

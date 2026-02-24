@@ -10,7 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import pathlib
 from typing import Dict, Optional, List
-from equation_engine import EquationModel
+from equation_engine import EquationModel, VarianceModel
 from app_config import MODE
 
 ALLOW_UPLOAD = (MODE == "local")
@@ -23,7 +23,24 @@ _DEFAULT_Y = "101.8\n121.4\n105.2\n114.1\n92.7\n93.3\n72.4\n61.1\n57.6\n50.0\n38
 _DEFAULT_Y_NEW = "49.6\n43.8\n24.0\n24.1\n17.3\n17.6\n15.6\n17.1"
 
 # ── Prior distribution choices ────────────────────────────────────────────────
-_PRIOR_DISTS = ["Normal", "HalfNormal", "Uniform", "LogNormal"]
+_PRIOR_DISTS = ["Normal", "HalfNormal", "Uniform", "LogNormal",
+                "Exponential", "Gamma"]
+
+# ── Mean model presets ────────────────────────────────────────────────────────
+_MEAN_PRESETS = {
+    "Custom": "y = b1 + b2 / (1 + (x / b3)**(-b4))",
+    "Linear": "y = a + b*x",
+    "Quadratic": "y = a + b*x + c*x**2",
+    "Saturating exponential": "y = a * (1 - exp(-b*x))",
+    "Logistic (4PL)": "y = a + (d - a) / (1 + (x / c)**(-b))",
+}
+
+# ── Variance model presets ────────────────────────────────────────────────────
+_VARIANCE_PRESETS = {
+    "Custom": "sd = (mu / A)**alpha * sigma",
+    "Constant": "sd = sigma",
+    "Proportional to mean (constant CV)": "sd = mu * sigma",
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Page config
@@ -106,99 +123,96 @@ y = b1 + b2 / (1 + (x/b3)**(-b4))
 # ══════════════════════════════════════════════════════════════════════════════
 st.header("Define Your Calibration Model")
 
-# ── Variance model choices ────────────────────────────────────────────────
-_VARIANCE_MODELS = {
-    "Constant variance": "constant",
-    "Proportional to mean (constant CV)": "proportional",
-    "Gelman et al. (2004) — learnable exponent": "gelman2004",
-}
-
-_VARIANCE_LATEX = {
-    "constant": r"\mathrm{Var}(y_i) \;=\; \sigma^2",
-    "proportional": r"\mathrm{Var}(y_i) \;=\; \mu_i^{\,2}\,\sigma^2",
-    "gelman2004": r"\mathrm{Var}(y_i) \;=\; \left(\frac{\mu_i}{A}\right)^{2\alpha} \sigma^2",
-}
-
-_VARIANCE_HELP = {
-    "constant": "Noise has the same spread at all signal levels.",
-    "proportional": (
-        "Standard deviation scales linearly with the predicted mean — "
-        "equivalent to assuming a constant coefficient of variation (CV)."
-    ),
-    "gelman2004": (
-        "The exponent α is learned from the data "
-        "([Gelman, Chew & Shnaidman 2004](https://doi.org/10.1111/j.0006-341X.2004.00185.x)). "
-        "*A* is the geometric mean of the calibration Y values. "
-        "α = 0 recovers constant variance; α = 1 ≈ constant CV."
-    ),
-}
-
 col_mean, col_var = st.columns(2)
 
 with col_mean:
     st.subheader("Mean model")
-    st.markdown(
-        "Type your equation using Python-style syntax. "
-        "Any symbol other than `x` is a parameter to estimate. "
-        "See the sidebar for syntax help."
+    mean_preset = st.selectbox(
+        "📈 **Preset**",
+        list(_MEAN_PRESETS.keys()),
+        index=0,  # Custom is default
+        help="Choose a common functional form, or select Custom to write your own.",
+        key="mean_preset",
     )
+    # When a preset is chosen, pre-fill the equation; Custom is editable
+    _mean_default = _MEAN_PRESETS[mean_preset]
     equation_input = st.text_input(
         "✏️ **Equation**",
-        value="y = b1 + b2 / (1 + (x / b3)**(-b4))",
+        value=_mean_default,
         placeholder="e.g.  y = a + b*x",
         help="Type any equation of the form  y = f(x).  "
              "Letters other than x become parameters to estimate.",
+        key="mean_eq_input",
     )
 
 with col_var:
     st.subheader("Variance model")
-    st.markdown(
-        "Choose how measurement noise scales with the predicted mean response μᵢ = f(xᵢ)."
+    var_preset = st.selectbox(
+        "📐 **Preset**",
+        list(_VARIANCE_PRESETS.keys()),
+        index=0,  # Custom is default
+        help="Choose how measurement noise scales with the predicted mean, "
+             "or select Custom to write your own.",
+        key="var_preset",
     )
-    variance_label = st.selectbox(
-        "📐 **Variance structure**",
-        list(_VARIANCE_MODELS.keys()),
-        index=0,
-        help="Constant = same noise everywhere. "
-             "Proportional = noise grows with signal (constant CV). "
-             "Gelman 2004 = exponent learned from data.",
+    _var_default = _VARIANCE_PRESETS[var_preset]
+    variance_eq_input = st.text_input(
+        "✏️ **Variance equation**  (`sd = g(mu, sigma, ...)`)",
+        value=_var_default,
+        placeholder="e.g.  sd = sigma",
+        help="Write the noise standard deviation as a function of mu "
+             "(predicted mean) and sigma (base noise scale). Any other "
+             "symbol becomes a learnable parameter.",
+        key="var_eq_input",
     )
-    variance_model_key = _VARIANCE_MODELS[variance_label]
 
 # --- Live parse & LaTeX preview (side-by-side) ----------------------------
 eq_model: Optional[EquationModel] = None
+var_model: Optional[VarianceModel] = None
+variance_model_key = "custom"  # always use the custom variance engine now
 
 if equation_input.strip():
     try:
         eq_model = EquationModel(equation_input)
+    except (ValueError, Exception) as exc:
+        st.error(f"❌ Mean model error: {exc}")
 
-        col_mean_preview, col_var_preview = st.columns(2)
+if variance_eq_input.strip():
+    try:
+        var_model = VarianceModel(variance_eq_input)
+    except (ValueError, Exception) as exc:
+        st.error(f"❌ Variance model error: {exc}")
 
-        with col_mean_preview:
-            st.latex(eq_model.latex_str())
-            param_str = ", ".join(
-                [f"**{p}**" for p in eq_model.param_names] + ["**σ** (noise)"]
+if eq_model is not None:
+    col_mean_preview, col_var_preview = st.columns(2)
+
+    with col_mean_preview:
+        st.latex(eq_model.latex_str())
+        all_param_names = list(eq_model.param_names) + ["σ (noise)"]
+        if var_model is not None:
+            all_param_names += var_model.param_names
+        param_str = ", ".join([f"**{p}**" for p in all_param_names])
+        st.markdown(f"Parameters to estimate: {param_str}")
+        if eq_model.has_symbolic_inverse:
+            st.markdown("✅ **Symbolic inverse found:**")
+            st.latex(eq_model.inverse_latex_str())
+        else:
+            st.markdown(
+                "⚠️ No closed-form inverse — will use **numerical root-finding** "
+                "(works fine, just slower for large datasets)."
             )
-            if variance_model_key == "gelman2004":
-                param_str += ", **α** (variance exponent)"
-            st.markdown(f"Parameters to estimate: {param_str}")
-            if eq_model.has_symbolic_inverse:
-                st.markdown("✅ **Symbolic inverse found:**")
-                st.latex(eq_model.inverse_latex_str())
-            else:
+
+    with col_var_preview:
+        if var_model is not None:
+            st.latex(var_model.latex_str())
+            st.latex(var_model.variance_latex_str())
+            if var_model.param_names:
                 st.markdown(
-                    "⚠️ No closed-form inverse — will use **numerical root-finding** "
-                    "(works fine, just slower for large datasets)."
+                    "Variance parameters: "
+                    + ", ".join([f"**{p}**" for p in var_model.param_names])
                 )
-
-        with col_var_preview:
-            st.latex(_VARIANCE_LATEX[variance_model_key])
-            st.markdown(_VARIANCE_HELP[variance_model_key])
-
-    except ValueError as exc:
-        st.error(f"❌ {exc}")
-    except Exception as exc:
-        st.error(f"❌ Unexpected error parsing equation: {exc}")
+        else:
+            st.info("Enter a valid variance equation above.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — Calibration Data
@@ -353,7 +367,27 @@ def _prior_widget(label: str, key_prefix: str, default_dist: str = "Normal",
                                            value=default_params.get("sigma", 1.0),
                                            min_value=0.01, format="%.2f",
                                            key=f"{key_prefix}_sigma")
+    elif dist == "Exponential":
+        cfg["lam"] = st.number_input("λ (rate)", value=default_params.get("lam", 1.0),
+                                     min_value=0.01, format="%.2f",
+                                     key=f"{key_prefix}_lam")
+    elif dist == "Gamma":
+        c1, c2 = st.columns(2)
+        with c1:
+            cfg["alpha"] = st.number_input("α (shape)", value=default_params.get("alpha", 2.0),
+                                           min_value=0.01, format="%.2f",
+                                           key=f"{key_prefix}_alpha")
+        with c2:
+            cfg["beta"] = st.number_input("β (rate)", value=default_params.get("beta", 1.0),
+                                          min_value=0.01, format="%.2f",
+                                          key=f"{key_prefix}_beta")
     return cfg
+
+
+# ── Default prior settings per parameter type ─────────────────────────────
+_DEFAULT_PRIOR_MAP = {
+    "sigma": ("HalfNormal", {"sigma": 10.0}),
+}
 
 
 with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
@@ -379,45 +413,134 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
     # ── Priors ────────────────────────────────────────────────────────────
     st.markdown("---")
     st.markdown("#### Prior Distributions")
+    st.markdown(
+        "Select a parameter from the dropdown to configure its prior. "
+        "The list updates automatically when you change the mean or "
+        "variance equations."
+    )
 
     prior_config: Dict = {}
     log_scale_params: List[str] = []
 
+    # Build the full list of parameters from both models
+    _all_params: List[str] = []
+    _param_sources: Dict[str, str] = {}
+
     if eq_model is not None:
-        st.markdown("##### Model parameters")
-        for p_name in eq_model.param_names:
-            with st.container():
-                st.markdown(f"**`{p_name}`**")
-                use_log = st.checkbox(
-                    f"Model on log scale (enforces positivity)",
-                    value=False,
-                    key=f"log_{p_name}",
-                )
-                if use_log:
-                    log_scale_params.append(p_name)
-                    st.caption(f"Prior is on log({p_name}); "
-                               f"the model uses {p_name} = exp(log_{p_name}).")
-                prior_config[p_name] = _prior_widget(
-                    p_name, key_prefix=f"prior_{p_name}",
-                    default_dist="Normal",
-                    default_params={"mu": 0.0, "sigma": 10.0},
+        for p in eq_model.param_names:
+            _all_params.append(p)
+            _param_sources[p] = "mean model"
+        _all_params.append("sigma")
+        _param_sources["sigma"] = "noise scale"
+
+    if var_model is not None:
+        for p in var_model.param_names:
+            if p not in _all_params:
+                _all_params.append(p)
+                _param_sources[p] = "variance model"
+
+    if _all_params:
+        # Parameter picker dropdown
+        _display_names = [
+            f"{p}  ({_param_sources[p]})" for p in _all_params
+        ]
+        selected_display = st.selectbox(
+            "🎯 **Parameter to configure**",
+            _display_names,
+            index=0,
+            key="prior_param_picker",
+        )
+        selected_param = _all_params[_display_names.index(selected_display)]
+
+        st.markdown(f"##### Prior for `{selected_param}`")
+
+        # Determine sensible defaults per parameter
+        if selected_param == "sigma":
+            _def_dist, _def_params = "HalfNormal", {"sigma": 10.0}
+        elif selected_param in _param_sources and _param_sources[selected_param] == "variance model":
+            _def_dist, _def_params = "HalfNormal", {"sigma": 2.0}
+        else:
+            _def_dist, _def_params = "Normal", {"mu": 0.0, "sigma": 10.0}
+
+        # Check for stored prior in session state
+        _stored_key = f"_prior_cfg_{selected_param}"
+
+        # Log-scale option (only for mean-model params, not sigma)
+        if selected_param != "sigma" and _param_sources.get(selected_param) == "mean model":
+            use_log = st.checkbox(
+                "Model on log scale (enforces positivity)",
+                value=False,
+                key=f"log_{selected_param}",
+            )
+            if use_log:
+                log_scale_params.append(selected_param)
+                st.caption(
+                    f"Prior is on log({selected_param}); the model uses "
+                    f"{selected_param} = exp(log_{selected_param})."
                 )
 
-        st.markdown("##### Noise parameters")
-        st.markdown("**`sigma`** (σ_y)")
-        prior_config["sigma"] = _prior_widget(
-            "sigma", key_prefix="prior_sigma",
-            default_dist="HalfNormal",
-            default_params={"sigma": 10.0},
+        cfg = _prior_widget(
+            selected_param,
+            key_prefix=f"prior_{selected_param}",
+            default_dist=_def_dist,
+            default_params=_def_params,
         )
 
-        if variance_model_key == "gelman2004":
-            st.markdown("**`alpha`** (variance exponent)")
-            prior_config["alpha"] = _prior_widget(
-                "alpha", key_prefix="prior_alpha",
-                default_dist="Uniform",
-                default_params={"lower": 0.0, "upper": 2.0},
-            )
+        # Store configured prior in session state so it persists
+        # when the user switches to another parameter
+        st.session_state[_stored_key] = cfg
+
+        # Collect all prior configs (use stored values or defaults)
+        for p in _all_params:
+            sk = f"_prior_cfg_{p}"
+            if sk in st.session_state:
+                prior_config[p] = st.session_state[sk]
+            elif p == "sigma":
+                prior_config[p] = {"dist": "HalfNormal", "sigma": 10.0}
+            elif p in _param_sources and _param_sources[p] == "variance model":
+                prior_config[p] = {"dist": "HalfNormal", "sigma": 2.0}
+            else:
+                prior_config[p] = {"dist": "Normal", "mu": 0.0, "sigma": 10.0}
+
+        # Collect log-scale params from session state
+        if eq_model is not None:
+            for p in eq_model.param_names:
+                lk = f"log_{p}"
+                if st.session_state.get(lk, False) and p not in log_scale_params:
+                    log_scale_params.append(p)
+
+        # Show a summary table of all current priors
+        st.markdown("---")
+        st.markdown("##### Current prior summary")
+        _summary_rows = []
+        for p in _all_params:
+            pc = prior_config.get(p, {})
+            dist_name = pc.get("dist", "Normal")
+            if dist_name == "Normal":
+                desc = f"Normal(μ={pc.get('mu', 0):.2f}, σ={pc.get('sigma', 10):.2f})"
+            elif dist_name == "HalfNormal":
+                desc = f"HalfNormal(σ={pc.get('sigma', 10):.2f})"
+            elif dist_name == "Uniform":
+                desc = f"Uniform({pc.get('lower', 0):.2f}, {pc.get('upper', 1):.2f})"
+            elif dist_name == "LogNormal":
+                desc = f"LogNormal(μ={pc.get('mu', 0):.2f}, σ={pc.get('sigma', 1):.2f})"
+            elif dist_name == "Exponential":
+                desc = f"Exponential(λ={pc.get('lam', 1):.2f})"
+            elif dist_name == "Gamma":
+                desc = f"Gamma(α={pc.get('alpha', 2):.2f}, β={pc.get('beta', 1):.2f})"
+            else:
+                desc = dist_name
+            log_tag = " *(log scale)*" if p in log_scale_params else ""
+            _summary_rows.append({
+                "Parameter": p,
+                "Source": _param_sources.get(p, ""),
+                "Prior": desc + log_tag,
+            })
+        st.dataframe(
+            pd.DataFrame(_summary_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
         st.info("Define an equation above to configure priors.")
 
@@ -454,6 +577,7 @@ else:
                     prior_config=prior_config,
                     log_scale_params=log_scale_params,
                     variance_model=variance_model_key,
+                    variance_eq=var_model,
                 )
             except Exception as exc:
                 st.error(f"\u274c Model build failed: {exc}")
@@ -479,13 +603,17 @@ else:
         for par in eq_model.param_names:
             posterior[par] = trace.posterior[par].values.flatten()
         posterior["sigma"] = trace.posterior["sigma"].values.flatten()
-        if variance_model_key == "gelman2004":
-            posterior["alpha"] = trace.posterior["alpha"].values.flatten()
+        # Extract variance model parameters (custom engine)
+        if var_model is not None:
+            for vp in var_model.param_names:
+                if vp not in posterior:
+                    posterior[vp] = trace.posterior[vp].values.flatten()
 
         # Store in session state
         st.session_state["trace"] = trace
         st.session_state["posterior"] = posterior
         st.session_state["eq_model"] = eq_model
+        st.session_state["var_model"] = var_model
         st.session_state["x_cal"] = x_cal
         st.session_state["y_cal"] = y_cal
         st.session_state["y_new_vals"] = y_new_vals
@@ -512,8 +640,11 @@ else:
         # -- MCMC Summary -------------------------------------------------
         st.subheader("MCMC Summary")
         summary_vars = eq_model_r.param_names + ["sigma"]
-        if stored_variance_model == "gelman2004":
-            summary_vars.append("alpha")
+        stored_var_model = st.session_state.get("var_model", None)
+        if stored_var_model is not None:
+            for vp in stored_var_model.param_names:
+                if vp not in summary_vars:
+                    summary_vars.append(vp)
         summary_df = az.summary(trace, var_names=summary_vars)
         st.dataframe(summary_df, use_container_width=True)
 
@@ -754,13 +885,11 @@ else:
             # For heteroscedastic models, noise depends on the predicted
             # mean at the (unknown) x*, so we approximate using the
             # observed y* as a stand-in for μ.
-            if stored_variance_model == "gelman2004":
-                alpha_draws = posterior["alpha"]
-                y_cal_pos = np.maximum(y_cal, 1e-12)
-                A_val = float(np.exp(np.mean(np.log(y_cal_pos))))
-            else:
-                alpha_draws = None
-                A_val = None
+            # Collect variance-model parameter draws for sd_numpy
+            var_param_draws = {}
+            if stored_var_model is not None:
+                for vp in stored_var_model.param_names:
+                    var_param_draws[vp] = posterior.get(vp, np.ones(n_draws))
 
             inv_rows = []
             all_draws = []
@@ -768,12 +897,12 @@ else:
             progress_bar = st.progress(
                 0, text="Computing inverse predictions...")
             for yi, y_val in enumerate(y_new_vals_r):
-                if stored_variance_model == "gelman2004":
-                    # sd_i = |y_val / A|^alpha * sigma
-                    sd_i = np.abs(y_val / A_val) ** alpha_draws * sigma_draws
-                elif stored_variance_model == "proportional":
-                    # sd_i = |y_val| * sigma  (constant CV)
-                    sd_i = np.abs(y_val) * sigma_draws
+                # Use the custom variance model to compute per-draw noise sd
+                if stored_var_model is not None:
+                    mu_proxy = np.full(n_draws, y_val)
+                    sd_i = stored_var_model.sd_numpy(
+                        mu_proxy, sigma_draws, var_param_draws)
+                    sd_i = np.maximum(sd_i, 1e-12)
                 else:
                     sd_i = sigma_draws
                 y_star = y_val + np.random.randn(n_draws) * sd_i
