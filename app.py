@@ -329,7 +329,6 @@ else:
         st.session_state["x_cal"] = x_cal
         st.session_state["y_cal"] = y_cal
         st.session_state["y_new_vals"] = y_new_vals
-        st.session_state["heteroscedastic"] = False
         st.session_state["run_complete"] = True
 
     # ======================================================================
@@ -346,19 +345,10 @@ else:
         x_cal = st.session_state["x_cal"]
         y_cal = st.session_state["y_cal"]
         y_new_vals_r = st.session_state.get("y_new_vals", y_new_vals)
-        is_hetero = st.session_state.get("heteroscedastic", False)
 
         # -- MCMC Summary -----------------------------------------------------
         st.subheader("MCMC Summary")
-        if is_hetero:
-            summary_vars = eq_model_r.param_names + ["sigma0"]
-            # sigma1 or delta depending on model
-            if "sigma1" in [v for v in trace.posterior.data_vars]:
-                summary_vars.append("sigma1")
-            if "delta" in [v for v in trace.posterior.data_vars]:
-                summary_vars.append("delta")
-        else:
-            summary_vars = eq_model_r.param_names + ["sigma"]
+        summary_vars = eq_model_r.param_names + ["sigma"]
         summary_df = az.summary(trace, var_names=summary_vars)
         st.dataframe(summary_df, use_container_width=True)
 
@@ -431,7 +421,6 @@ else:
         from scipy.stats import norm as _norm
 
         # Breusch-Pagan test for heteroscedasticity
-        # Requires a design matrix; use fitted values as regressor
         import statsmodels.api as sm
         exog_bp = sm.add_constant(y_pred)
         bp_lm, bp_lm_p, bp_f, bp_f_p = het_breuschpagan(residuals, exog_bp)
@@ -445,15 +434,13 @@ else:
             n = n_pos + n_neg
             if n_pos == 0 or n_neg == 0 or n < 3:
                 return np.nan, np.nan
-            # Count runs
             runs = 1 + int(np.sum(signs[1:] != signs[:-1]))
-            # Expected value and variance under H0
             e_runs = 1.0 + (2.0 * n_pos * n_neg) / n
             var_runs = (2.0 * n_pos * n_neg * (2.0 * n_pos * n_neg - n)) / (n**2 * (n - 1.0))
             if var_runs <= 0:
                 return np.nan, np.nan
             z = (runs - e_runs) / np.sqrt(var_runs)
-            p_value = 2.0 * _norm.sf(np.abs(z))  # two-sided
+            p_value = 2.0 * _norm.sf(np.abs(z))
             return z, p_value
 
         runs_stat, runs_p = _wald_wolfowitz_runs_test(residuals)
@@ -470,10 +457,8 @@ else:
                     "⚠️ Significant heteroscedasticity detected (*p* < 0.05). "
                     "The variance of the residuals is not constant across fitted values."
                 )
-                bp_flag = True
             else:
                 st.success("✅ No significant heteroscedasticity (*p* ≥ 0.05).")
-                bp_flag = False
 
         with col_t2:
             st.markdown("##### Wald–Wolfowitz runs test (randomness)")
@@ -489,82 +474,62 @@ else:
             else:
                 st.success("✅ Residuals appear random (*p* ≥ 0.05).")
 
-        # -- Heteroscedasticity correction UI --------------------------------
-        if bp_flag and not is_hetero:
-            st.markdown("---")
+        # -- Guided diagnostic questions & practical pointers ----------------
+        st.markdown("---")
+        st.markdown("#### 🔍 Interpreting the residual plots")
+        st.markdown(
+            "Use the plots and test results above to check whether your "
+            "model is a good fit. Here are some questions to guide you:"
+        )
+
+        with st.expander("**Can you see a pattern (curve, trend) in the residuals?**", expanded=False):
             st.markdown(
-                "The Breusch-Pagan test suggests the noise variance changes with "
-                "the signal level. You can account for this by fitting a "
-                "**heteroscedastic** model where the standard deviation depends on "
-                "the predicted mean."
+                "If the residuals show a systematic curve or trend rather than "
+                "a random scatter around zero, the current equation may not capture "
+                "the true relationship between X and Y.\n\n"
+                "**What to try:**\n"
+                "- Go back to **Step ①** and try a different model — for example, "
+                "add a quadratic term (`y = a + b*x + c*x**2`), or switch to a "
+                "nonlinear form like `y = a * exp(b*x)` or `y = a * x**b`.\n"
+                "- If you already used a polynomial, try increasing the order by one.\n"
+                "- Look at the scatter plot of your calibration data for visual clues "
+                "about what shape the curve should be."
             )
-            hetero_check = st.checkbox(
-                "Account for heteroscedasticity",
-                value=False,
-                key="hetero_checkbox",
+
+        with st.expander("**Does the spread of residuals change systematically (bigger at one end)?**", expanded=False):
+            st.markdown(
+                "If the residuals fan out — e.g. small residuals at low X (or Ŷ) "
+                "and large residuals at high X — the noise is not constant "
+                "(heteroscedasticity). The Breusch-Pagan test above checks for "
+                "this formally.\n\n"
+                "**What to try:**\n"
+                "- **Log-transform your data** before fitting. Replace your Y values "
+                "with `log(Y)` and fit the model to the transformed data. This often "
+                "stabilises the variance when noise is proportional to the signal.\n"
+                "- Alternatively, try a **power transform** such as `sqrt(Y)` or "
+                "fit a model in log-space, e.g. `y = a + b*log(x)`.\n"
+                "- If your assay has a known coefficient-of-variation (CV), working "
+                "in log-space naturally accounts for constant-CV noise."
             )
-            if hetero_check:
-                var_model = st.radio(
-                    "Variance model",
-                    [
-                        "Linear:  σᵢ = σ₀ + σ₁·|μᵢ|",
-                        "Power:   σᵢ = σ₀·|μᵢ|^δ",
-                    ],
-                    horizontal=True,
-                    key="var_model_radio",
-                )
-                var_model_key = "linear" if var_model.startswith("Linear") else "power"
 
-                if st.button("Recalculate with heteroscedastic model", type="primary", use_container_width=True, key="recalc_btn"):
-                    with st.spinner("Building heteroscedastic model..."):
-                        try:
-                            model_h = eq_model_r.build_pymc_model_heteroscedastic(
-                                x_cal, y_cal, variance_model=var_model_key
-                            )
-                        except Exception as exc:
-                            st.error(f"\u274c Heteroscedastic model build failed: {exc}")
-                            st.stop()
+        with st.expander("**Are there one or two outliers far from zero?**", expanded=False):
+            st.markdown(
+                "Isolated large residuals may indicate data entry errors, sample "
+                "preparation problems, or genuine outliers.\n\n"
+                "**What to try:**\n"
+                "- Double-check the raw data for transcription errors.\n"
+                "- If the outlier is real, consider whether that standard should be "
+                "excluded or whether a more robust model is needed.\n"
+                "- As a quick sanity check, remove the suspect point from your "
+                "calibration data and re-run — if the fit improves dramatically, "
+                "that point was likely problematic."
+            )
 
-                    with st.spinner("Sampling heteroscedastic posterior (this may take a moment)..."):
-                        try:
-                            with model_h:
-                                trace_h = pm.sample(
-                                    draws=int(iter_sampling),
-                                    tune=int(iter_warmup),
-                                    chains=int(chains),
-                                    random_seed=int(seed),
-                                    progressbar=False,
-                                    return_inferencedata=True,
-                                )
-                        except Exception as exc:
-                            st.error(f"\u274c MCMC sampling failed: {exc}")
-                            st.stop()
-
-                    # Extract posterior
-                    posterior_h: Dict[str, np.ndarray] = {}
-                    for par in eq_model_r.param_names:
-                        posterior_h[par] = trace_h.posterior[par].values.flatten()
-                    # sigma is now per-observation; grab elementwise draws
-                    posterior_h["sigma"] = trace_h.posterior["sigma"].values.reshape(
-                        -1, len(x_cal)
-                    )
-                    if "sigma0" in trace_h.posterior:
-                        posterior_h["sigma0"] = trace_h.posterior["sigma0"].values.flatten()
-                    if "sigma1" in trace_h.posterior:
-                        posterior_h["sigma1"] = trace_h.posterior["sigma1"].values.flatten()
-                    if "delta" in trace_h.posterior:
-                        posterior_h["delta"] = trace_h.posterior["delta"].values.flatten()
-
-                    st.session_state["trace"] = trace_h
-                    st.session_state["posterior"] = posterior_h
-                    st.session_state["heteroscedastic"] = True
-                    st.session_state["var_model_key"] = var_model_key
-                    st.rerun()
-
-        elif is_hetero:
-            st.info(
-                "✅ **Heteroscedastic model active.** The noise variance is modelled "
-                "as a function of the predicted mean."
+        with st.expander("**Do the residuals look random and centred around zero?**", expanded=False):
+            st.markdown(
+                "Great — this is what you want to see! If both statistical tests "
+                "also pass (*p* ≥ 0.05), the model assumptions appear to be "
+                "satisfied and you can be confident in the inverse predictions below."
             )
 
         # ==================================================================
@@ -572,44 +537,18 @@ else:
         # ==================================================================
         st.subheader("Inverse Predictions")
         alpha_tail = (1 - credible_level) / 2
-        n_draws = len(posterior[eq_model_r.param_names[0]])
+        sigma_draws = posterior["sigma"]
+        n_draws = len(sigma_draws)
         x_hint = float(x_cal.mean())
         x_lo_range = float(x_cal.min()) - 3 * float(np.ptp(x_cal))
         x_hi_range = float(x_cal.max()) + 3 * float(np.ptp(x_cal))
-
-        # For heteroscedastic models we need per-new-Y sigma draws.
-        # We approximate sigma at the new Y level using the variance model
-        # evaluated at the posterior-predicted mean for that Y.
-        if is_hetero:
-            # sigma array is (n_draws, n_cal_obs); for new Y we compute
-            # sigma at the predicted mu level for each draw
-            var_model_key = st.session_state.get("var_model_key", "linear")
-            if "sigma0" in posterior:
-                sigma0_draws = posterior["sigma0"]
-            else:
-                sigma0_draws = np.ones(n_draws)
-            if var_model_key == "linear":
-                sigma1_draws = posterior.get("sigma1", np.zeros(n_draws))
-            else:
-                delta_draws = posterior.get("delta", np.zeros(n_draws))
 
         inv_rows = []
         all_draws = []
 
         progress_bar = st.progress(0, text="Computing inverse predictions...")
         for yi, y_val in enumerate(y_new_vals_r):
-            # Determine per-draw sigma for this Y value
-            if is_hetero:
-                # Use y_val as proxy for |mu| at the inverse point
-                abs_mu_approx = np.abs(y_val)
-                if var_model_key == "linear":
-                    sig_draws = sigma0_draws + sigma1_draws * abs_mu_approx
-                else:
-                    sig_draws = sigma0_draws * np.power(abs_mu_approx + 1e-8, delta_draws)
-            else:
-                sig_draws = posterior["sigma"]
-
-            y_star = y_val + np.random.randn(n_draws) * sig_draws
+            y_star = y_val + np.random.randn(n_draws) * sigma_draws
             x_draws = eq_model_r.inverse_numpy(
                 y_star, posterior,
                 x_hint=x_hint,

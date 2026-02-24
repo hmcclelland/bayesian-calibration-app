@@ -111,8 +111,7 @@ implemented in the accompanying Streamlit application.
     $\ycal=(y_1,\dots,y_n)^\top$ & Vector of calibration $y$-values \\
     $f(x;\,\thetab)$ & Forward (calibration) function \\
     $\thetab=(\theta_1,\dots,\theta_p)^\top$ & Model parameters \\
-    $\sigma$ & Observation noise standard deviation (homoscedastic model) \\
-    $\sigma_i$ & Observation-level noise s.d.\ (heteroscedastic model) \\
+    $\sigma$ & Observation noise standard deviation \\
     $y^{*}$ & A new observed response for which we wish to find $x^{*}$ \\
     $x^{*}$ & The unknown quantity to be estimated via inverse prediction \\
     \bottomrule
@@ -160,51 +159,6 @@ Equivalently, in vector form with $\bm{\mu}=(f(x_1;\thetab),\dots,f(x_n;\thetab)
 \end{equation}
 
 % =============================================================================
-\subsection{Heteroscedastic Gaussian Likelihood}
-\label{sec:hetero}
-
-\Cref{ass:noise} assumes constant variance.  In many assays the noise variance
-grows with the signal level.  We relax this with:
-
-\begin{assumption}[Non-constant variance]\label{ass:hetero}
-    The observation noise has standard deviation that depends on the predicted
-    mean $\mu_i = f(x_i;\,\thetab)$:
-    \begin{equation}\label{eq:hetero-obs}
-        y_i = f(x_i;\,\thetab) + \varepsilon_i,
-        \qquad \varepsilon_i \sim \N(0,\,\sigma_i^2),
-    \end{equation}
-    where $\sigma_i = g(\mu_i;\,\bm{\phi})$ for some variance function $g$
-    with its own parameters $\bm{\phi}$.
-\end{assumption}
-
-The application offers two variance functions:
-
-\paragraph{Linear variance model.}
-\begin{equation}\label{eq:var-linear}
-    \sigma_i = \sigma_0 + \sigma_1\,|\mu_i|,
-    \qquad \sigma_0>0,\;\sigma_1\ge0.
-\end{equation}
-Here $\sigma_0$ captures a baseline noise floor and $\sigma_1$ captures the
-proportional increase in noise with signal magnitude.
-
-\paragraph{Power-of-the-mean variance model.}
-\begin{equation}\label{eq:var-power}
-    \sigma_i = \sigma_0\,|\mu_i|^{\delta},
-    \qquad \sigma_0>0,\;\delta\ge0.
-\end{equation}
-When $\delta=0$ this reduces to constant variance; when $\delta=1$ it gives
-a coefficient-of-variation model (constant relative standard deviation).
-
-The heteroscedastic likelihood is
-\begin{equation}\label{eq:likelihood-hetero}
-    p(\ycal \mid \xcal,\,\thetab,\,\bm{\phi})
-    = \prod_{i=1}^{n} \frac{1}{\sqrt{2\pi}\,\sigma_i}
-      \exp\!\Bigl[-\frac{(y_i - \mu_i)^2}{2\sigma_i^2}\Bigr],
-\end{equation}
-where each $\sigma_i$ is given by \eqref{eq:var-linear} or
-\eqref{eq:var-power}.
-
-% =============================================================================
 \section{Prior Distributions}
 \label{sec:priors}
 % =============================================================================
@@ -213,24 +167,12 @@ where each $\sigma_i$ is given by \eqref{eq:var-linear} or
     We adopt the following independent prior distributions.
 \end{assumption}
 
-\subsection{Homoscedastic Model}
-
 \begin{align}
     \theta_j &\sim \N(0,\,10^2), \qquad j=1,\dots,p, \label{eq:prior-theta}\\
     \sigma   &\sim \HN(0,\,10^2), \label{eq:prior-sigma}
 \end{align}
 where $\HN(0,\,\tau^2)$ denotes the half-normal distribution (i.e.\ a normal
 distribution truncated to $(0,\infty)$).
-
-\subsection{Heteroscedastic Model}
-
-For the variance-function parameters:
-\begin{align}
-    \theta_j &\sim \N(0,\,10^2), \qquad j=1,\dots,p, \\
-    \sigma_0 &\sim \HN(0,\,10^2), \label{eq:prior-sigma0}\\
-    \sigma_1 &\sim \HN(0,\,1^2), \qquad\text{(linear model)}\label{eq:prior-sigma1}\\
-    \delta   &\sim \HN(0,\,1^2). \qquad\text{(power model)}\label{eq:prior-delta}
-\end{align}
 
 \paragraph{Rationale.}
 The normal priors on $\thetab$ are centred at zero with standard deviation~10,
@@ -366,10 +308,8 @@ distribution of the unknown $x^{*}$ that produced it.
     data:
     \begin{equation}\label{eq:new-obs}
         y^{*} = f(x^{*};\,\thetab) + \varepsilon^{*},
-        \qquad \varepsilon^{*}\sim\N(0,\,\sigma^{*2}),
+        \qquad \varepsilon^{*}\sim\N(0,\,\sigma^{2}).
     \end{equation}
-    where $\sigma^{*}=\sigma$ in the homoscedastic case, or
-    $\sigma^{*}=g(f(x^{*};\thetab);\,\bm{\phi})$ in the heteroscedastic case.
 \end{assumption}
 
 \subsection{Posterior Predictive Distribution of \texorpdfstring{$x^{*}$}{x*}}
@@ -392,14 +332,7 @@ $\sigma$.  We approximate it by Monte Carlo:
     \begin{enumerate}[nosep]
         \item Sample a ``noisy'' response:
               $\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$
-              where $\epsilon^{(s)}\sim\N(0,\,(\sigma^{*(s)})^2)$.
-
-              In the homoscedastic case $\sigma^{*(s)}=\sigma^{(s)}$.
-
-              In the heteroscedastic case we approximate
-              $\sigma^{*(s)} \approx g(y^{*};\,\bm{\phi}^{(s)})$, using
-              $y^{*}$ as a proxy for $|f(x^{*};\thetab^{(s)})|$.
-
+              where $\epsilon^{(s)}\sim\N(0,\,\sigma^{(s)2})$.
         \item Invert the forward model:
               $x^{*(s)} = f^{-1}(\tilde{y}^{(s)};\,\thetab^{(s)})$.
     \end{enumerate}
@@ -467,8 +400,10 @@ Point estimates reported:
 \label{sec:diagnostics}
 % =============================================================================
 
-After fitting the homoscedastic model, the application performs residual
-diagnostics to assess model adequacy.
+After fitting the model, the application performs residual
+diagnostics to assess model adequacy.  These diagnostics help the user decide
+whether the chosen equation is appropriate or whether a different functional
+form or data transformation should be tried.
 
 \subsection{Residual Computation}
 
@@ -499,7 +434,10 @@ The test procedure:
           regressors (here $k=1$).
 \end{enumerate}
 
-A $p$-value below 0.05 indicates significant heteroscedasticity.
+A $p$-value below 0.05 indicates significant heteroscedasticity.  In such
+cases the application advises the user to consider data transformations (e.g.\
+taking $\log y$ or $\sqrt{y}$) to stabilise the variance before re-fitting,
+rather than modelling the variance structure directly.
 
 \subsection{Wald--Wolfowitz Runs Test for Randomness}
 
@@ -517,33 +455,27 @@ The standardised test statistic $Z=(R-\E[R])/\sqrt{\Var(R)}$ is approximately
 standard normal for large $n$.
 
 A $p$-value below 0.05 suggests systematic (non-random) structure in the
-residuals, indicating potential model misspecification.
+residuals, indicating potential model misspecification.  In such cases the
+application advises the user to try a different functional form (e.g.\ adding a
+polynomial term or switching to a nonlinear model).
 
-% =============================================================================
-\section{Heteroscedastic Inverse Prediction}
-\label{sec:hetero-inverse}
-% =============================================================================
+\subsection{Practical Guidance}
 
-When the user elects to account for heteroscedasticity, the full parameter
-vector becomes $(\thetab,\,\bm{\phi})$ where $\bm{\phi}=(\sigma_0,\sigma_1)$
-or $\bm{\phi}=(\sigma_0,\delta)$.
+Based on the diagnostic results, the application presents the following
+guidance to the user:
 
-The inverse prediction procedure (\Cref{prop:mc-inverse}) is modified as
-follows.  For each posterior draw $s$:
-\begin{enumerate}[nosep]
-    \item Compute the approximate noise level at $y^{*}$:
-          \begin{equation}
-              \sigma^{*(s)} = g\!\bigl(|y^{*}|;\,\bm{\phi}^{(s)}\bigr),
-          \end{equation}
-          using $|y^{*}|$ as a proxy for $|\mu_i|$ (since $y^{*}\approx f(x^{*};\thetab)$
-          up to noise).
-    \item Sample $\tilde{y}^{(s)}=y^{*}+\epsilon^{(s)}$ with
-          $\epsilon^{(s)}\sim\N(0,(\sigma^{*(s)})^2)$.
-    \item Invert: $x^{*(s)}=f^{-1}(\tilde{y}^{(s)};\,\thetab^{(s)})$.
-\end{enumerate}
-
-This correctly propagates the heteroscedastic noise structure into the
-inverse-prediction uncertainty.
+\begin{itemize}[nosep]
+    \item \textbf{Systematic pattern in residuals} (e.g.\ curvature): try a
+          different model, such as adding a polynomial term or switching to an
+          exponential or power-law form.
+    \item \textbf{Fan-shaped / non-constant spread} (heteroscedasticity): try
+          a variance-stabilising transformation such as $\log(y)$ or
+          $\sqrt{y}$ before fitting.
+    \item \textbf{Isolated outliers}: check for data entry errors; consider
+          removing the suspect point and re-fitting.
+    \item \textbf{Random scatter around zero}: the model assumptions appear
+          satisfied.
+\end{itemize}
 
 % =============================================================================
 \section{Summary of Assumptions}
@@ -556,8 +488,7 @@ For clarity we collect all assumptions:
     \item[\ref{ass:functional}] The user-specified functional form $f(x;\thetab)$
           is a correct (or adequate) description of the calibration relationship.
     \item[\ref{ass:noise}] Observation noise is additive and Gaussian with
-          constant variance (homoscedastic model) or signal-dependent variance
-          (heteroscedastic model, \Cref{ass:hetero}).
+          constant variance.
     \item[\ref{ass:indep}] Observations are mutually independent conditional on
           the parameters.
     \item[\ref{ass:priors}] Prior distributions are weakly informative
@@ -572,7 +503,11 @@ For clarity we collect all assumptions:
 \paragraph{When assumptions may be violated.}
 \begin{itemize}[nosep]
     \item If the functional form is wrong, residual diagnostics (runs test)
-          should flag systematic patterns.
+          should flag systematic patterns.  The user should try a different
+          equation.
+    \item If noise variance is not constant (heteroscedasticity), the
+          Breusch--Pagan test will flag this.  A variance-stabilising
+          transformation (e.g.\ $\log y$) is recommended before re-fitting.
     \item If noise is non-Gaussian (e.g.\ heavy-tailed), the posterior and
           credible intervals may undercover.  Robust likelihood extensions
           (e.g.\ Student-$t$) can be implemented as future work.
