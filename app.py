@@ -428,7 +428,7 @@ else:
         st.markdown("**Statistical tests for residual structure:**")
 
         from statsmodels.stats.diagnostic import het_breuschpagan
-        from statsmodels.stats.stattools import runs_signtest
+        from scipy.stats import norm as _norm
 
         # Breusch-Pagan test for heteroscedasticity
         # Requires a design matrix; use fitted values as regressor
@@ -436,8 +436,27 @@ else:
         exog_bp = sm.add_constant(y_pred)
         bp_lm, bp_lm_p, bp_f, bp_f_p = het_breuschpagan(residuals, exog_bp)
 
-        # Wald-Wolfowitz runs test for randomness
-        runs_stat, runs_p = runs_signtest(residuals)
+        # Wald-Wolfowitz runs test for randomness (manual implementation)
+        def _wald_wolfowitz_runs_test(residuals_arr):
+            """Two-sided Wald-Wolfowitz runs test on the signs of residuals."""
+            signs = np.array(residuals_arr) > 0
+            n_pos = int(signs.sum())
+            n_neg = int((~signs).sum())
+            n = n_pos + n_neg
+            if n_pos == 0 or n_neg == 0 or n < 3:
+                return np.nan, np.nan
+            # Count runs
+            runs = 1 + int(np.sum(signs[1:] != signs[:-1]))
+            # Expected value and variance under H0
+            e_runs = 1.0 + (2.0 * n_pos * n_neg) / n
+            var_runs = (2.0 * n_pos * n_neg * (2.0 * n_pos * n_neg - n)) / (n**2 * (n - 1.0))
+            if var_runs <= 0:
+                return np.nan, np.nan
+            z = (runs - e_runs) / np.sqrt(var_runs)
+            p_value = 2.0 * _norm.sf(np.abs(z))  # two-sided
+            return z, p_value
+
+        runs_stat, runs_p = _wald_wolfowitz_runs_test(residuals)
 
         col_t1, col_t2 = st.columns(2)
         with col_t1:
