@@ -27,7 +27,7 @@ st.set_page_config(
 # ══════════════════════════════════════════════════════════════════════════════
 # Header + editable description from description.md
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("\U0001f52c Bayesian Calibration & Inverse Prediction")
+st.title("Bayesian Calibration & Inverse Prediction")
 
 _desc_path = pathlib.Path(__file__).parent / "description.md"
 if _desc_path.exists():
@@ -107,7 +107,7 @@ y = a * (1 - exp(-b*x))
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Equation Editor (text input + live LaTeX preview)
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("\u2460 Define Your Calibration Equation")
+st.header("Define Your Calibration Equation")
 st.markdown(
     "Type your equation below using Python-style syntax. "
     "Any symbol other than `x` is treated as a parameter to estimate. "
@@ -151,7 +151,7 @@ if equation_input.strip():
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — Calibration Data
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("\u2461 Calibration Data")
+st.header("Calibration Data")
 st.markdown("Provide paired **(X, Y)** calibration measurements.")
 
 cal_df: Optional[pd.DataFrame] = None
@@ -219,7 +219,7 @@ if cal_df is not None:
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 3 — New Y values
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("\u2462 New Y Values for Inverse Prediction")
+st.header("New Y Values for Inverse Prediction")
 st.markdown(
     "Enter the **Y** values for which you want to estimate the "
     "corresponding **X**."
@@ -267,7 +267,7 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 4 — Run
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("\u2463 Run Calibration & Inverse Prediction")
+st.header("Run Calibration & Inverse Prediction")
 
 run_ready = (
     eq_model is not None
@@ -486,21 +486,35 @@ else:
                 "a random scatter around zero, the current equation may not capture "
                 "the true relationship between X and Y.\n\n"
                 "**What to try:**\n"
-                "- Go back to **Step ①** and try a different model — for example, "
-                "add a quadratic term (`y = a + b*x + c*x**2`), or switch to a "
-                "nonlinear form like `y = a * exp(b*x)` or `y = a * x**b`.\n"
-                "- If you already used a polynomial, try increasing the order by one.\n"
-                "- Look at the scatter plot of your calibration data for visual clues "
-                "about what shape the curve should be."
+                "- Think about the **physical or biological process** underlying "
+                "your assay. Does the relationship between X and Y have a known "
+                "functional form? For example, enzyme kinetics often follow a "
+                "Michaelis-Menten curve, fluorescence assays may saturate "
+                "exponentially, and dose-response curves are typically sigmoidal. "
+                "Choose a model that reflects the mechanism, not just one that "
+                "fits the numbers.\n"
+                "- If you're unsure of the underlying mechanism, look at the "
+                "scatter plot of your calibration data for visual clues about the "
+                "shape — is it concave, convex, S-shaped?\n"
+                "- Avoid blindly adding polynomial terms to improve the fit. "
+                "A high-order polynomial may follow the calibration data closely "
+                "but will extrapolate poorly and give unreliable inverse predictions "
+                "outside the calibration range."
             )
 
         with st.expander("**Does the spread of residuals change systematically (bigger at one end)?**", expanded=False):
             st.markdown(
                 "If the residuals fan out — e.g. small residuals at low X (or Ŷ) "
-                "and large residuals at high X — the noise is not constant "
-                "(heteroscedasticity). The Breusch-Pagan test above checks for "
-                "this formally.\n\n"
-                "**What to try:**\n"
+                "and large residuals at high X — the noise may not be constant. "
+                "The Breusch-Pagan test above checks for this formally.\n\n"
+                "**A note on the test:** The Breusch-Pagan test is only an "
+                "indicator. With small calibration datasets it has limited power, "
+                "and with very large datasets it can flag trivially small effects. "
+                "**Look at the residual plots first.** If you can't see an obvious "
+                "fan or funnel shape in the residuals, the constant-variance "
+                "assumption is probably fine for your purposes — even if the "
+                "test returns a low *p*-value.\n\n"
+                "**If the spread clearly changes:**\n"
                 "- **Log-transform your data** before fitting. Replace your Y values "
                 "with `log(Y)` and fit the model to the transformed data. This often "
                 "stabilises the variance when noise is proportional to the signal.\n"
@@ -533,114 +547,120 @@ else:
         # ==================================================================
         # STEP 5 — Inverse Prediction
         # ==================================================================
-        st.subheader("Inverse Predictions")
-        alpha_tail = (1 - credible_level) / 2
-        sigma_draws = posterior["sigma"]
-        n_draws = len(sigma_draws)
-        x_hint = float(x_cal.mean())
-        x_lo_range = float(x_cal.min()) - 3 * float(np.ptp(x_cal))
-        x_hi_range = float(x_cal.max()) + 3 * float(np.ptp(x_cal))
+        st.markdown("---")
+        if st.button("Show inverse predictions", type="primary", use_container_width=True, key="show_inverse_btn"):
+            st.session_state["show_inverse"] = True
 
-        inv_rows = []
-        all_draws = []
+        if st.session_state.get("show_inverse", False):
 
-        progress_bar = st.progress(0, text="Computing inverse predictions...")
-        for yi, y_val in enumerate(y_new_vals_r):
-            y_star = y_val + np.random.randn(n_draws) * sigma_draws
-            x_draws = eq_model_r.inverse_numpy(
-                y_star, posterior,
-                x_hint=x_hint,
-                x_range=(x_lo_range, x_hi_range),
+            st.subheader("Inverse Predictions")
+            alpha_tail = (1 - credible_level) / 2
+            sigma_draws = posterior["sigma"]
+            n_draws = len(sigma_draws)
+            x_hint = float(x_cal.mean())
+            x_lo_range = float(x_cal.min()) - 3 * float(np.ptp(x_cal))
+            x_hi_range = float(x_cal.max()) + 3 * float(np.ptp(x_cal))
+
+            inv_rows = []
+            all_draws = []
+
+            progress_bar = st.progress(0, text="Computing inverse predictions...")
+            for yi, y_val in enumerate(y_new_vals_r):
+                y_star = y_val + np.random.randn(n_draws) * sigma_draws
+                x_draws = eq_model_r.inverse_numpy(
+                    y_star, posterior,
+                    x_hint=x_hint,
+                    x_range=(x_lo_range, x_hi_range),
+                )
+                x_draws = np.asarray(x_draws, dtype=float)
+                x_draws = x_draws[np.isfinite(x_draws)]
+                all_draws.append(x_draws)
+
+                if len(x_draws) > 0:
+                    lo = np.percentile(x_draws, 100 * alpha_tail)
+                    hi = np.percentile(x_draws, 100 * (1 - alpha_tail))
+                    inv_rows.append({
+                        "Y_observed": y_val,
+                        "X_median": np.median(x_draws),
+                        "X_mean": np.mean(x_draws),
+                        "X_sd": np.std(x_draws),
+                        f"X_lo ({credible_level:.0%})": lo,
+                        f"X_hi ({credible_level:.0%})": hi,
+                    })
+                else:
+                    inv_rows.append({
+                        "Y_observed": y_val,
+                        "X_median": np.nan,
+                        "X_mean": np.nan,
+                        "X_sd": np.nan,
+                        f"X_lo ({credible_level:.0%})": np.nan,
+                        f"X_hi ({credible_level:.0%})": np.nan,
+                    })
+                progress_bar.progress(
+                    (yi + 1) / len(y_new_vals_r),
+                    text=f"Inverse prediction {yi + 1}/{len(y_new_vals_r)}"
+                )
+            progress_bar.empty()
+
+            df_result = pd.DataFrame(inv_rows)
+            st.dataframe(df_result, use_container_width=True)
+
+            csv_buf = df_result.to_csv(index=False)
+            st.download_button(
+                "Download results as CSV",
+                csv_buf,
+                file_name="inverse_predictions.csv",
+                mime="text/csv",
             )
-            x_draws = np.asarray(x_draws, dtype=float)
-            x_draws = x_draws[np.isfinite(x_draws)]
-            all_draws.append(x_draws)
 
-            if len(x_draws) > 0:
-                lo = np.percentile(x_draws, 100 * alpha_tail)
-                hi = np.percentile(x_draws, 100 * (1 - alpha_tail))
-                inv_rows.append({
-                    "Y_observed": y_val,
-                    "X_median": np.median(x_draws),
-                    "X_mean": np.mean(x_draws),
-                    "X_sd": np.std(x_draws),
-                    f"X_lo ({credible_level:.0%})": lo,
-                    f"X_hi ({credible_level:.0%})": hi,
-                })
-            else:
-                inv_rows.append({
-                    "Y_observed": y_val,
-                    "X_median": np.nan,
-                    "X_mean": np.nan,
-                    "X_sd": np.nan,
-                    f"X_lo ({credible_level:.0%})": np.nan,
-                    f"X_hi ({credible_level:.0%})": np.nan,
-                })
-            progress_bar.progress(
-                (yi + 1) / len(y_new_vals_r),
-                text=f"Inverse prediction {yi + 1}/{len(y_new_vals_r)}"
+            # -- Posterior histograms ----------------------------------------------
+            st.subheader("Posterior Distributions of X")
+            n_new = len(y_new_vals_r)
+            n_cols = min(n_new, 3)
+            n_rows_fig = int(np.ceil(n_new / n_cols))
+            fig_inv, axes_inv = plt.subplots(
+                n_rows_fig, n_cols,
+                figsize=(5 * n_cols, 4 * n_rows_fig),
+                squeeze=False,
             )
-        progress_bar.empty()
+            for idx_y, (y_val, x_draws) in enumerate(
+                zip(y_new_vals_r, all_draws)
+            ):
+                ax = axes_inv[idx_y // n_cols][idx_y % n_cols]
+                if len(x_draws) == 0:
+                    ax.text(
+                        0.5, 0.5, "No valid\ndraws",
+                        ha="center", va="center",
+                        transform=ax.transAxes, fontsize=14, color="red",
+                    )
+                else:
+                    ax.hist(
+                        x_draws, bins=60, density=True,
+                        color="steelblue", alpha=0.7,
+                    )
+                    lo = np.percentile(x_draws, 100 * alpha_tail)
+                    hi = np.percentile(x_draws, 100 * (1 - alpha_tail))
+                    ax.axvline(
+                        lo, color="red", ls="--",
+                        label=f"{credible_level:.0%} CI",
+                    )
+                    ax.axvline(hi, color="red", ls="--")
+                    ax.axvline(
+                        np.median(x_draws), color="orange", label="Median"
+                    )
+                    ax.legend(fontsize=8)
+                ax.set_title(f"Y = {y_val:.4g}")
+                ax.set_xlabel("X")
 
-        df_result = pd.DataFrame(inv_rows)
-        st.dataframe(df_result, use_container_width=True)
+            for idx_y in range(n_new, n_rows_fig * n_cols):
+                axes_inv[idx_y // n_cols][idx_y % n_cols].set_visible(False)
 
-        csv_buf = df_result.to_csv(index=False)
-        st.download_button(
-            "Download results as CSV",
-            csv_buf,
-            file_name="inverse_predictions.csv",
-            mime="text/csv",
-        )
-
-        # -- Posterior histograms ----------------------------------------------
-        st.subheader("Posterior Distributions of X")
-        n_new = len(y_new_vals_r)
-        n_cols = min(n_new, 3)
-        n_rows_fig = int(np.ceil(n_new / n_cols))
-        fig_inv, axes_inv = plt.subplots(
-            n_rows_fig, n_cols,
-            figsize=(5 * n_cols, 4 * n_rows_fig),
-            squeeze=False,
-        )
-        for idx_y, (y_val, x_draws) in enumerate(
-            zip(y_new_vals_r, all_draws)
-        ):
-            ax = axes_inv[idx_y // n_cols][idx_y % n_cols]
-            if len(x_draws) == 0:
-                ax.text(
-                    0.5, 0.5, "No valid\ndraws",
-                    ha="center", va="center",
-                    transform=ax.transAxes, fontsize=14, color="red",
-                )
-            else:
-                ax.hist(
-                    x_draws, bins=60, density=True,
-                    color="steelblue", alpha=0.7,
-                )
-                lo = np.percentile(x_draws, 100 * alpha_tail)
-                hi = np.percentile(x_draws, 100 * (1 - alpha_tail))
-                ax.axvline(
-                    lo, color="red", ls="--",
-                    label=f"{credible_level:.0%} CI",
-                )
-                ax.axvline(hi, color="red", ls="--")
-                ax.axvline(
-                    np.median(x_draws), color="orange", label="Median"
-                )
-                ax.legend(fontsize=8)
-            ax.set_title(f"Y = {y_val:.4g}")
-            ax.set_xlabel("X")
-
-        for idx_y in range(n_new, n_rows_fig * n_cols):
-            axes_inv[idx_y // n_cols][idx_y % n_cols].set_visible(False)
-
-        fig_inv.suptitle(
-            "Inverse-prediction posterior distributions", fontsize=14
-        )
-        fig_inv.tight_layout()
-        st.pyplot(fig_inv)
-        plt.close(fig_inv)
+            fig_inv.suptitle(
+                "Inverse-prediction posterior distributions", fontsize=14
+            )
+            fig_inv.tight_layout()
+            st.pyplot(fig_inv)
+            plt.close(fig_inv)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Footer
