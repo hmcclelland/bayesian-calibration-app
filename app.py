@@ -404,6 +404,34 @@ _DEFAULT_PRIOR_MAP = {
     "sigma": ("HalfNormal", {"sigma": 10.0}),
 }
 
+# ── Compute data-informed priors when both equation and data are available ─
+_data_informed_priors: Dict = {}
+if eq_model is not None and cal_df is not None:
+    try:
+        _data_informed_priors = eq_model.compute_data_informed_priors(
+            cal_df["X"].values.astype(float),
+            cal_df["Y"].values.astype(float),
+        )
+    except Exception:
+        _data_informed_priors = {}
+
+
+def _get_default_prior(param_name: str, param_source: str):
+    """Return (dist_name, params_dict) using data-informed priors when
+    available, otherwise sensible generic defaults."""
+    if param_name in _data_informed_priors:
+        cfg = _data_informed_priors[param_name]
+        dist = cfg.get("dist", "Normal")
+        params = {k: v for k, v in cfg.items() if k != "dist"}
+        return dist, params
+    # Fallback generic defaults
+    if param_name == "sigma":
+        return "HalfNormal", {"sigma": 10.0}
+    elif param_source == "variance model":
+        return "HalfNormal", {"sigma": 2.0}
+    else:
+        return "Normal", {"mu": 0.0, "sigma": 10.0}
+
 
 with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
                   expanded=False):
@@ -470,13 +498,11 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
 
         st.markdown(f"##### Prior for `{selected_param}`")
 
-        # Determine sensible defaults per parameter
-        if selected_param == "sigma":
-            _def_dist, _def_params = "HalfNormal", {"sigma": 10.0}
-        elif selected_param in _param_sources and _param_sources[selected_param] == "variance model":
-            _def_dist, _def_params = "HalfNormal", {"sigma": 2.0}
-        else:
-            _def_dist, _def_params = "Normal", {"mu": 0.0, "sigma": 10.0}
+        # Determine sensible defaults per parameter (data-informed)
+        _def_dist, _def_params = _get_default_prior(
+            selected_param,
+            _param_sources.get(selected_param, ""),
+        )
 
         # Check for stored prior in session state
         _stored_key = f"_prior_cfg_{selected_param}"
@@ -506,17 +532,15 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
         # when the user switches to another parameter
         st.session_state[_stored_key] = cfg
 
-        # Collect all prior configs (use stored values or defaults)
+        # Collect all prior configs (use stored values or data-informed defaults)
         for p in _all_params:
             sk = f"_prior_cfg_{p}"
             if sk in st.session_state:
                 prior_config[p] = st.session_state[sk]
-            elif p == "sigma":
-                prior_config[p] = {"dist": "HalfNormal", "sigma": 10.0}
-            elif p in _param_sources and _param_sources[p] == "variance model":
-                prior_config[p] = {"dist": "HalfNormal", "sigma": 2.0}
             else:
-                prior_config[p] = {"dist": "Normal", "mu": 0.0, "sigma": 10.0}
+                _fd, _fp = _get_default_prior(
+                    p, _param_sources.get(p, ""))
+                prior_config[p] = {"dist": _fd, **_fp}
 
         # Collect log-scale params from session state
         if eq_model is not None:

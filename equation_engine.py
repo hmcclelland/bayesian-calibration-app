@@ -396,6 +396,9 @@ class EquationModel:
                 "variance_eq is required when variance_model='custom'"
             )
 
+        # ── Compute least-squares starting values for initialisation ──────
+        initvals = self._estimate_initvals(x_cal, y_cal)
+
         # Build a pytensor-compatible forward function from SymPy
         pt_mapping = {
             "exp": pt.exp, "log": pt.log, "sqrt": pt.sqrt,
@@ -478,7 +481,144 @@ class EquationModel:
                 sd = pt.maximum(pt.abs(sd), 1e-8)
                 pm.Normal("y_obs", mu=mu, sigma=sd, observed=y_cal)
 
+            # ── Set initial values from least-squares if available ────────
+            if initvals:
+                _iv = {}
+                for p_name, val in initvals.items():
+                    if p_name in log_scale_params:
+                        if val > 0:
+                            _iv[f"log_{p_name}"] = float(np.log(val))
+                    else:
+                        _iv[p_name] = float(val)
+                # sigma init: residual standard deviation from LS fit
+                try:
+                    ls_pred = self.forward_numpy(initvals, np.asarray(x_cal, dtype=float))
+                    ls_resid_sd = float(np.std(np.asarray(y_cal, dtype=float) - ls_pred))
+                    if ls_resid_sd > 0:
+                        _iv["sigma_log__"] = float(np.log(ls_resid_sd))
+                except Exception:
+                    pass
+                model.initial_point_for_sampler = _iv
+
         return model
+
+    def _estimate_initvals(
+        self, x_cal, y_cal
+    ) -> Optional[Dict[str, float]]:
+        """Try scipy.optimize.curve_fit to get least-squares starting values.
+
+        Returns a dict {param_name: value} or None if it fails.
+        """
+        try:
+            from scipy.optimize import curve_fit
+        except ImportError:
+            return None
+
+        x_cal = np.asarray(x_cal, dtype=float)
+        y_cal = np.asarray(y_cal, dtype=float)
+
+        def _wrapper(x, *args):
+            p = {name: args[i] for i, name in enumerate(self.param_names)}
+            return self.forward_numpy(p, x)
+
+        # Generate multiple initial guesses to increase chance of convergence
+        n_params = len(self.param_names)
+        y_range = float(np.ptp(y_cal))
+        y_mid = float(np.mean(y_cal))
+        x_mid = float(np.mean(x_cal))
+        x_range = float(np.ptp(x_cal))
+
+        guess_sets = [
+            [1.0] * n_params,
+            [y_mid / max(n_params, 1)] * n_params,
+            [y_range] * n_params,
+        ]
+        # A heuristic guess: first param ~ y_min, second ~ y_range,
+        # third ~ x_mid, rest ~ 1
+        if n_params >= 3:
+            smart_guess = [float(np.min(y_cal))] * n_params
+            if n_params >= 2:
+                smart_guess[1] = y_range
+            smart_guess[2] = x_mid if x_mid != 0 else x_range / 2
+            for i in range(3, n_params):
+                smart_guess[i] = 1.0
+            guess_sets.append(smart_guess)
+
+        for p0 in guess_sets:
+            try:
+                popt, _ = curve_fit(
+                    _wrapper, x_cal, y_cal, p0=p0,
+                    maxfev=10000, full_output=False,
+                )
+                result = {name: float(popt[i])
+                          for i, name in enumerate(self.param_names)}
+                # Sanity check: all finite?
+                if all(np.isfinite(v) for v in result.values()):
+                    return result
+            except Exception:
+                continue
+
+        return None
+
+    def compute_data_informed_priors(
+        self, x_cal, y_cal
+    ) -> Dict[str, Dict]:
+        """Return a dict of data-informed prior configs for each parameter.
+
+        Uses least-squares estimates when available; otherwise falls back
+        to heuristics based on the X and Y data ranges.
+
+        Returns
+        -------
+        dict
+            Keys are parameter names (including 'sigma'), values are prior
+            config dicts like ``{"dist": "Normal", "mu": ..., "sigma": ...}``.
+        """
+        x_cal = np.asarray(x_cal, dtype=float)
+        y_cal = np.asarray(y_cal, dtype=float)
+
+        y_range = float(np.ptp(y_cal))
+        y_mean = float(np.mean(y_cal))
+        y_std = float(np.std(y_cal))
+        x_range = float(np.ptp(x_cal))
+        x_mean = float(np.mean(x_cal))
+
+        # Scale for "wide but reasonable" prior width
+        scale = max(y_range, y_std, 1.0)
+
+        priors: Dict[str, Dict] = {}
+
+        # Try least-squares first
+        ls_vals = self._estimate_initvals(x_cal, y_cal)
+
+        for p_name in self.param_names:
+            if ls_vals and p_name in ls_vals:
+                # Centre the prior on the LS estimate with generous width
+                mu = ls_vals[p_name]
+                # Width proportional to |estimate| or data scale, whichever
+                # is larger — ensures the prior is weakly informative
+                sigma = max(abs(mu) * 3.0, scale, 1.0)
+                priors[p_name] = {"dist": "Normal",
+                                  "mu": round(mu, 4),
+                                  "sigma": round(sigma, 2)}
+            else:
+                # Fallback heuristic: centre on data midpoint, wide spread
+                priors[p_name] = {"dist": "Normal",
+                                  "mu": round(y_mean, 2),
+                                  "sigma": round(scale * 5, 2)}
+
+        # Sigma: HalfNormal with scale based on Y spread
+        resid_scale = y_range / 4.0  # rough residual scale
+        if ls_vals:
+            try:
+                ls_pred = self.forward_numpy(ls_vals, x_cal)
+                resid_scale = max(float(np.std(y_cal - ls_pred)), 0.1)
+            except Exception:
+                pass
+        priors["sigma"] = {"dist": "HalfNormal",
+                           "sigma": round(max(resid_scale * 3, 1.0), 2)}
+
+        return priors
 
     def __repr__(self):
         return (f"EquationModel('{self.equation_str}')  "
