@@ -6,3 +6,4 @@ sympy
 scipy
 pymc>=5.10
 arviz>=0.16
+statsmodels>=0.14

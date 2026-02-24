@@ -1,7 +1,6 @@
 """
 Bayesian Calibration & Inverse Prediction — Streamlit App
-=======================
-===================================
+=========================================================
 Run locally:  streamlit run app.py
 """
 
@@ -37,6 +36,25 @@ else:
     st.markdown(
         "Define **any** calibration equation, fit it to data with Bayesian MCMC, "
         "then estimate **X** from new **Y** values with full uncertainty."
+    )
+
+# -- "Under the Hood" PDF link ---------------------------------------------
+_pdf_path = pathlib.Path(__file__).parent / "docs" / "derivation.pdf"
+if _pdf_path.exists():
+    with open(_pdf_path, "rb") as _pdf_file:
+        _pdf_bytes = _pdf_file.read()
+    import base64 as _b64
+    _pdf_b64 = _b64.b64encode(_pdf_bytes).decode()
+    st.markdown(
+        f'📄 <a href="data:application/pdf;base64,{_pdf_b64}" '
+        f'target="_blank"><strong>Under the Hood</strong> — '
+        f'Mathematical derivation (PDF)</a>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        "📄 *Under the Hood — mathematical derivation PDF not yet compiled. "
+        "See `docs/derivation.tex`.*"
     )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -274,7 +292,7 @@ else:
         x_cal = cal_df["X"].values.astype(float)
         y_cal = cal_df["Y"].values.astype(float)
 
-        # -- Build PyMC model ------------------------------------------------
+        # -- Build PyMC model (homoscedastic first) --------------------------
         with st.spinner("Building model..."):
             try:
                 model = eq_model.build_pymc_model(x_cal, y_cal)
@@ -304,9 +322,44 @@ else:
             posterior[par] = trace.posterior[par].values.flatten()
         posterior["sigma"] = trace.posterior["sigma"].values.flatten()
 
+        # -- Store results in session state for potential recalculation -------
+        st.session_state["trace"] = trace
+        st.session_state["posterior"] = posterior
+        st.session_state["eq_model"] = eq_model
+        st.session_state["x_cal"] = x_cal
+        st.session_state["y_cal"] = y_cal
+        st.session_state["y_new_vals"] = y_new_vals
+        st.session_state["heteroscedastic"] = False
+        st.session_state["run_complete"] = True
+
+    # ======================================================================
+    # Display results (from session state so they survive widget changes)
+    # ======================================================================
+    if st.session_state.get("run_complete", False):
+
+        import pymc as pm
+        import arviz as az
+
+        trace = st.session_state["trace"]
+        posterior = st.session_state["posterior"]
+        eq_model_r = st.session_state["eq_model"]
+        x_cal = st.session_state["x_cal"]
+        y_cal = st.session_state["y_cal"]
+        y_new_vals_r = st.session_state.get("y_new_vals", y_new_vals)
+        is_hetero = st.session_state.get("heteroscedastic", False)
+
         # -- MCMC Summary -----------------------------------------------------
         st.subheader("MCMC Summary")
-        summary_df = az.summary(trace, var_names=eq_model.param_names + ["sigma"])
+        if is_hetero:
+            summary_vars = eq_model_r.param_names + ["sigma0"]
+            # sigma1 or delta depending on model
+            if "sigma1" in [v for v in trace.posterior.data_vars]:
+                summary_vars.append("sigma1")
+            if "delta" in [v for v in trace.posterior.data_vars]:
+                summary_vars.append("delta")
+        else:
+            summary_vars = eq_model_r.param_names + ["sigma"]
+        summary_df = az.summary(trace, var_names=summary_vars)
         st.dataframe(summary_df, use_container_width=True)
 
         # -- Calibration fit plot ----------------------------------------------
@@ -319,12 +372,12 @@ else:
         x_grid = np.linspace(
             x_cal.min() * 0.9, x_cal.max() * 1.1, 300
         )
-        n_total = len(posterior["sigma"])
+        n_total = len(posterior[eq_model_r.param_names[0]])
         n_curves = min(300, n_total)
-        idx = np.random.choice(n_total, n_curves, replace=False)
-        for i in idx:
-            p_i = {k: v[i] for k, v in posterior.items()}
-            yg = eq_model.forward_numpy(p_i, x_grid)
+        idx_curves = np.random.choice(n_total, n_curves, replace=False)
+        for i in idx_curves:
+            p_i = {k: posterior[k][i] for k in eq_model_r.param_names}
+            yg = eq_model_r.forward_numpy(p_i, x_grid)
             ax_fit.plot(x_grid, yg, alpha=0.02, color="steelblue")
 
         ax_fit.set_xlabel("X")
@@ -335,22 +388,210 @@ else:
         st.pyplot(fig_fit)
         plt.close(fig_fit)
 
-        # -- Inverse prediction -----------------------------------------------
+        # ==================================================================
+        # STEP 4b — Residual Diagnostics
+        # ==================================================================
+        st.subheader("Residual Diagnostics")
+
+        # Compute residuals using posterior median parameters
+        median_params = {p: np.median(posterior[p]) for p in eq_model_r.param_names}
+        y_pred = eq_model_r.forward_numpy(median_params, x_cal)
+        residuals = y_cal - y_pred
+
+        col_res1, col_res2 = st.columns(2)
+
+        with col_res1:
+            # Residuals vs fitted
+            fig_rvf, ax_rvf = plt.subplots(figsize=(5, 3.5))
+            ax_rvf.scatter(y_pred, residuals, c="steelblue", s=40, edgecolors="k", linewidths=0.5)
+            ax_rvf.axhline(0, color="red", ls="--", lw=1)
+            ax_rvf.set_xlabel("Fitted values (Ŷ)")
+            ax_rvf.set_ylabel("Residuals (Y − Ŷ)")
+            ax_rvf.set_title("Residuals vs Fitted")
+            fig_rvf.tight_layout()
+            st.pyplot(fig_rvf)
+            plt.close(fig_rvf)
+
+        with col_res2:
+            # Residuals vs X
+            fig_rvx, ax_rvx = plt.subplots(figsize=(5, 3.5))
+            ax_rvx.scatter(x_cal, residuals, c="steelblue", s=40, edgecolors="k", linewidths=0.5)
+            ax_rvx.axhline(0, color="red", ls="--", lw=1)
+            ax_rvx.set_xlabel("X")
+            ax_rvx.set_ylabel("Residuals (Y − Ŷ)")
+            ax_rvx.set_title("Residuals vs X")
+            fig_rvx.tight_layout()
+            st.pyplot(fig_rvx)
+            plt.close(fig_rvx)
+
+        # -- Statistical tests for residual randomness -----------------------
+        st.markdown("**Statistical tests for residual structure:**")
+
+        from statsmodels.stats.diagnostic import het_breuschpagan
+        from statsmodels.stats.stattools import runs_signtest
+
+        # Breusch-Pagan test for heteroscedasticity
+        # Requires a design matrix; use fitted values as regressor
+        import statsmodels.api as sm
+        exog_bp = sm.add_constant(y_pred)
+        bp_lm, bp_lm_p, bp_f, bp_f_p = het_breuschpagan(residuals, exog_bp)
+
+        # Wald-Wolfowitz runs test for randomness
+        runs_stat, runs_p = runs_signtest(residuals)
+
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.markdown("##### Breusch-Pagan test (heteroscedasticity)")
+            st.markdown(
+                f"- LM statistic: **{bp_lm:.4f}**\n"
+                f"- *p*-value: **{bp_lm_p:.4f}**"
+            )
+            if bp_lm_p < 0.05:
+                st.warning(
+                    "⚠️ Significant heteroscedasticity detected (*p* < 0.05). "
+                    "The variance of the residuals is not constant across fitted values."
+                )
+                bp_flag = True
+            else:
+                st.success("✅ No significant heteroscedasticity (*p* ≥ 0.05).")
+                bp_flag = False
+
+        with col_t2:
+            st.markdown("##### Wald–Wolfowitz runs test (randomness)")
+            st.markdown(
+                f"- Test statistic: **{runs_stat:.4f}**\n"
+                f"- *p*-value: **{runs_p:.4f}**"
+            )
+            if runs_p < 0.05:
+                st.warning(
+                    "⚠️ Significant non-randomness in residuals (*p* < 0.05). "
+                    "There may be systematic structure the model does not capture."
+                )
+            else:
+                st.success("✅ Residuals appear random (*p* ≥ 0.05).")
+
+        # -- Heteroscedasticity correction UI --------------------------------
+        if bp_flag and not is_hetero:
+            st.markdown("---")
+            st.markdown(
+                "The Breusch-Pagan test suggests the noise variance changes with "
+                "the signal level. You can account for this by fitting a "
+                "**heteroscedastic** model where the standard deviation depends on "
+                "the predicted mean."
+            )
+            hetero_check = st.checkbox(
+                "Account for heteroscedasticity",
+                value=False,
+                key="hetero_checkbox",
+            )
+            if hetero_check:
+                var_model = st.radio(
+                    "Variance model",
+                    [
+                        "Linear:  σᵢ = σ₀ + σ₁·|μᵢ|",
+                        "Power:   σᵢ = σ₀·|μᵢ|^δ",
+                    ],
+                    horizontal=True,
+                    key="var_model_radio",
+                )
+                var_model_key = "linear" if var_model.startswith("Linear") else "power"
+
+                if st.button("Recalculate with heteroscedastic model", type="primary", use_container_width=True, key="recalc_btn"):
+                    with st.spinner("Building heteroscedastic model..."):
+                        try:
+                            model_h = eq_model_r.build_pymc_model_heteroscedastic(
+                                x_cal, y_cal, variance_model=var_model_key
+                            )
+                        except Exception as exc:
+                            st.error(f"\u274c Heteroscedastic model build failed: {exc}")
+                            st.stop()
+
+                    with st.spinner("Sampling heteroscedastic posterior (this may take a moment)..."):
+                        try:
+                            with model_h:
+                                trace_h = pm.sample(
+                                    draws=int(iter_sampling),
+                                    tune=int(iter_warmup),
+                                    chains=int(chains),
+                                    random_seed=int(seed),
+                                    progressbar=False,
+                                    return_inferencedata=True,
+                                )
+                        except Exception as exc:
+                            st.error(f"\u274c MCMC sampling failed: {exc}")
+                            st.stop()
+
+                    # Extract posterior
+                    posterior_h: Dict[str, np.ndarray] = {}
+                    for par in eq_model_r.param_names:
+                        posterior_h[par] = trace_h.posterior[par].values.flatten()
+                    # sigma is now per-observation; grab elementwise draws
+                    posterior_h["sigma"] = trace_h.posterior["sigma"].values.reshape(
+                        -1, len(x_cal)
+                    )
+                    if "sigma0" in trace_h.posterior:
+                        posterior_h["sigma0"] = trace_h.posterior["sigma0"].values.flatten()
+                    if "sigma1" in trace_h.posterior:
+                        posterior_h["sigma1"] = trace_h.posterior["sigma1"].values.flatten()
+                    if "delta" in trace_h.posterior:
+                        posterior_h["delta"] = trace_h.posterior["delta"].values.flatten()
+
+                    st.session_state["trace"] = trace_h
+                    st.session_state["posterior"] = posterior_h
+                    st.session_state["heteroscedastic"] = True
+                    st.session_state["var_model_key"] = var_model_key
+                    st.rerun()
+
+        elif is_hetero:
+            st.info(
+                "✅ **Heteroscedastic model active.** The noise variance is modelled "
+                "as a function of the predicted mean."
+            )
+
+        # ==================================================================
+        # STEP 5 — Inverse Prediction
+        # ==================================================================
         st.subheader("Inverse Predictions")
         alpha_tail = (1 - credible_level) / 2
-        sigma_draws = posterior["sigma"]
-        n_draws = len(sigma_draws)
+        n_draws = len(posterior[eq_model_r.param_names[0]])
         x_hint = float(x_cal.mean())
         x_lo_range = float(x_cal.min()) - 3 * float(np.ptp(x_cal))
         x_hi_range = float(x_cal.max()) + 3 * float(np.ptp(x_cal))
+
+        # For heteroscedastic models we need per-new-Y sigma draws.
+        # We approximate sigma at the new Y level using the variance model
+        # evaluated at the posterior-predicted mean for that Y.
+        if is_hetero:
+            # sigma array is (n_draws, n_cal_obs); for new Y we compute
+            # sigma at the predicted mu level for each draw
+            var_model_key = st.session_state.get("var_model_key", "linear")
+            if "sigma0" in posterior:
+                sigma0_draws = posterior["sigma0"]
+            else:
+                sigma0_draws = np.ones(n_draws)
+            if var_model_key == "linear":
+                sigma1_draws = posterior.get("sigma1", np.zeros(n_draws))
+            else:
+                delta_draws = posterior.get("delta", np.zeros(n_draws))
 
         inv_rows = []
         all_draws = []
 
         progress_bar = st.progress(0, text="Computing inverse predictions...")
-        for yi, y_val in enumerate(y_new_vals):
-            y_star = y_val + np.random.randn(n_draws) * sigma_draws
-            x_draws = eq_model.inverse_numpy(
+        for yi, y_val in enumerate(y_new_vals_r):
+            # Determine per-draw sigma for this Y value
+            if is_hetero:
+                # Use y_val as proxy for |mu| at the inverse point
+                abs_mu_approx = np.abs(y_val)
+                if var_model_key == "linear":
+                    sig_draws = sigma0_draws + sigma1_draws * abs_mu_approx
+                else:
+                    sig_draws = sigma0_draws * np.power(abs_mu_approx + 1e-8, delta_draws)
+            else:
+                sig_draws = posterior["sigma"]
+
+            y_star = y_val + np.random.randn(n_draws) * sig_draws
+            x_draws = eq_model_r.inverse_numpy(
                 y_star, posterior,
                 x_hint=x_hint,
                 x_range=(x_lo_range, x_hi_range),
@@ -380,8 +621,8 @@ else:
                     f"X_hi ({credible_level:.0%})": np.nan,
                 })
             progress_bar.progress(
-                (yi + 1) / len(y_new_vals),
-                text=f"Inverse prediction {yi + 1}/{len(y_new_vals)}"
+                (yi + 1) / len(y_new_vals_r),
+                text=f"Inverse prediction {yi + 1}/{len(y_new_vals_r)}"
             )
         progress_bar.empty()
 
@@ -398,16 +639,16 @@ else:
 
         # -- Posterior histograms ----------------------------------------------
         st.subheader("Posterior Distributions of X")
-        n_new = len(y_new_vals)
+        n_new = len(y_new_vals_r)
         n_cols = min(n_new, 3)
-        n_rows = int(np.ceil(n_new / n_cols))
+        n_rows_fig = int(np.ceil(n_new / n_cols))
         fig_inv, axes_inv = plt.subplots(
-            n_rows, n_cols,
-            figsize=(5 * n_cols, 4 * n_rows),
+            n_rows_fig, n_cols,
+            figsize=(5 * n_cols, 4 * n_rows_fig),
             squeeze=False,
         )
         for idx_y, (y_val, x_draws) in enumerate(
-            zip(y_new_vals, all_draws)
+            zip(y_new_vals_r, all_draws)
         ):
             ax = axes_inv[idx_y // n_cols][idx_y % n_cols]
             if len(x_draws) == 0:
@@ -435,7 +676,7 @@ else:
             ax.set_title(f"Y = {y_val:.4g}")
             ax.set_xlabel("X")
 
-        for idx_y in range(n_new, n_rows * n_cols):
+        for idx_y in range(n_new, n_rows_fig * n_cols):
             axes_inv[idx_y // n_cols][idx_y % n_cols].set_visible(False)
 
         fig_inv.suptitle(

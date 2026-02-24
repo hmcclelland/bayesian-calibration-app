@@ -236,5 +236,54 @@ class EquationModel:
 
         return model
 
+    def build_pymc_model_heteroscedastic(self, x_cal, y_cal, variance_model="linear"):
+        """Build a PyMC model with observation-level variance.
+
+        variance_model:
+            "linear"  — sigma_i = sigma0 + sigma1 * |mu_i|
+            "power"   — sigma_i = sigma0 * |mu_i|^delta
+        """
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        pt_mapping = {
+            "exp": pt.exp, "log": pt.log, "sqrt": pt.sqrt,
+            "sin": pt.sin, "cos": pt.cos, "tan": pt.tan,
+            "sinh": pt.sinh, "cosh": pt.cosh, "tanh": pt.tanh,
+            "Abs": pt.abs,
+        }
+        all_args = [self.x_sym] + self.param_symbols
+        pt_forward = sp.lambdify(
+            all_args, self.rhs_expr,
+            modules=[pt_mapping, "numpy"],
+        )
+
+        with pm.Model() as model:
+            x_data = pm.Data("x_data", x_cal)
+
+            param_vars = {}
+            for p_name in self.param_names:
+                param_vars[p_name] = pm.Normal(p_name, mu=0, sigma=10)
+
+            args = [x_data] + [param_vars[p] for p in self.param_names]
+            mu = pm.Deterministic("mu", pt_forward(*args))
+
+            abs_mu = pt.abs(mu) + 1e-8          # guard against zero
+
+            if variance_model == "linear":
+                sigma0 = pm.HalfNormal("sigma0", sigma=10)
+                sigma1 = pm.HalfNormal("sigma1", sigma=1)
+                sigma = pm.Deterministic("sigma", sigma0 + sigma1 * abs_mu)
+            elif variance_model == "power":
+                sigma0 = pm.HalfNormal("sigma0", sigma=10)
+                delta  = pm.HalfNormal("delta", sigma=1)
+                sigma  = pm.Deterministic("sigma", sigma0 * pt.pow(abs_mu, delta))
+            else:
+                raise ValueError(f"Unknown variance_model: {variance_model!r}")
+
+            pm.Normal("y_obs", mu=mu, sigma=sigma, observed=y_cal)
+
+        return model
+
     def __repr__(self):
         return f"EquationModel('{self.equation_str}')  params={self.param_names}"
