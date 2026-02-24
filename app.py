@@ -369,6 +369,7 @@ def _prior_widget(label: str, key_prefix: str, default_dist: str = "Normal",
     dist = st.selectbox(f"Distribution", allowed_dists,
                         index=allowed_dists.index(default_dist),
                         key=f"{key_prefix}_dist")
+    cfg = {"dist": dist}
     if dist == "Normal":
         c1, c2 = st.columns(2)
         with c1:
@@ -526,6 +527,7 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
         _stored_key = f"_prior_cfg_{selected_param}"
 
         # Log-scale option (only for mean-model params, not sigma)
+        use_log = False  # default for sigma / variance-model params
         if selected_param != "sigma" and _param_sources.get(selected_param) == "mean model":
             use_log = st.checkbox(
                 "Model on log scale (enforces positivity)",
@@ -534,10 +536,45 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
             )
             if use_log:
                 log_scale_params.append(selected_param)
-                st.caption(
-                    f"Prior is on log({selected_param}); the model uses "
-                    f"{selected_param} = exp(log_{selected_param})."
+                st.info(
+                    f"**Log-scale prior for `{selected_param}`**\n\n"
+                    f"The sampler works with `log_{selected_param}` internally "
+                    f"and recovers the original parameter via "
+                    f"`{selected_param} = exp(log_{selected_param})`.\n\n"
+                    f"• Only **Normal** and **Uniform** priors are offered "
+                    f"because positivity-constrained distributions "
+                    f"(HalfNormal, LogNormal, Gamma, Exponential) would cause "
+                    f"PyMC to add a *second* internal log-transform, leading "
+                    f"to numerical failures.\n\n"
+                    f"• The prior parameters below are specified in "
+                    f"**log-space**. For example, Normal(μ=2.30, σ=1.0) in "
+                    f"log-space centres the prior at "
+                    f"exp(2.30) ≈ 10 in the original scale.",
+                    icon="ℹ️",
                 )
+
+        # When log-scale is ticked, auto-convert the data-informed
+        # defaults from original space → log-space so the user sees
+        # sensible starting values without manual calculation.
+        if use_log:
+            _log_dist = "Normal"
+            _orig_mu = _def_params.get("mu", 0.0)
+            _orig_sigma = _def_params.get("sigma", 10.0)
+            if _orig_mu > 0:
+                _log_mu = round(float(np.log(_orig_mu)), 4)
+                _log_sigma = round(max(_orig_sigma / _orig_mu, 0.5), 2)
+            else:
+                # Fallback: use LS estimate if available
+                _ls_vals = _data_informed_priors.get(selected_param, {})
+                _ls_mu = _ls_vals.get("mu", 1.0)
+                if _ls_mu > 0:
+                    _log_mu = round(float(np.log(_ls_mu)), 4)
+                    _log_sigma = 2.0
+                else:
+                    _log_mu = 0.0
+                    _log_sigma = 3.0
+            _def_dist = _log_dist
+            _def_params = {"mu": _log_mu, "sigma": _log_sigma}
 
         cfg = _prior_widget(
             selected_param,
