@@ -1,28 +1,26 @@
-\contentsline {section}{\numberline {1}Introduction and Motivation}{1}{section.1}%
+\contentsline {section}{\numberline {1}Introduction}{1}{section.1}%
 \contentsline {section}{\numberline {2}Notation}{2}{section.2}%
-\contentsline {section}{\numberline {3}Forward Model}{2}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Homoscedastic Gaussian Likelihood}{2}{subsection.3.1}%
+\contentsline {section}{\numberline {3}The Calibration Model}{2}{section.3}%
 \contentsline {section}{\numberline {4}Prior Distributions}{3}{section.4}%
-\contentsline {paragraph}{Rationale.}{3}{equation.4.5}%
-\contentsline {paragraph}{Prior independence.}{3}{equation.4.5}%
+\contentsline {paragraph}{Rationale.}{3}{section*.2}%
+\contentsline {paragraph}{Joint prior.}{3}{section*.3}%
 \contentsline {section}{\numberline {5}Posterior Distribution}{3}{section.5}%
 \contentsline {section}{\numberline {6}MCMC Sampling via NUTS}{3}{section.6}%
 \contentsline {subsection}{\numberline {6.1}Hamiltonian Monte Carlo}{3}{subsection.6.1}%
-\contentsline {subsection}{\numberline {6.2}The No-U-Turn Sampler (NUTS)}{4}{subsection.6.2}%
-\contentsline {subsection}{\numberline {6.3}Warm-up and Adaptation}{4}{subsection.6.3}%
-\contentsline {subsection}{\numberline {6.4}Convergence Diagnostics}{4}{subsection.6.4}%
+\contentsline {subsection}{\numberline {6.2}The No-U-Turn Sampler}{4}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Warm-up, Sampling, and Diagnostics}{4}{subsection.6.3}%
 \contentsline {section}{\numberline {7}Inverse Prediction}{4}{section.7}%
 \contentsline {subsection}{\numberline {7.1}Problem Statement}{4}{subsection.7.1}%
-\contentsline {subsection}{\numberline {7.2}Posterior Predictive Distribution of $x^{*}$}{5}{subsection.7.2}%
-\contentsline {subsection}{\numberline {7.3}Inversion Methods}{5}{subsection.7.3}%
-\contentsline {paragraph}{Symbolic inverse.}{5}{subsection.7.3}%
-\contentsline {paragraph}{Numerical inverse.}{5}{subsection.7.3}%
-\contentsline {subsection}{\numberline {7.4}Credible Intervals}{5}{subsection.7.4}%
-\contentsline {section}{\numberline {8}Residual Diagnostics}{6}{section.8}%
-\contentsline {subsection}{\numberline {8.1}Residual Computation}{6}{subsection.8.1}%
-\contentsline {subsection}{\numberline {8.2}Breusch--Pagan Test for Heteroscedasticity}{6}{subsection.8.2}%
-\contentsline {subsection}{\numberline {8.3}Wald--Wolfowitz Runs Test for Randomness}{6}{subsection.8.3}%
+\contentsline {subsection}{\numberline {7.2}Posterior Predictive Distribution of $x^{*}$}{4}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Inversion Methods}{4}{subsection.7.3}%
+\contentsline {paragraph}{Symbolic inverse.}{4}{section*.4}%
+\contentsline {paragraph}{Numerical inverse.}{5}{section*.5}%
+\contentsline {subsection}{\numberline {7.4}Credible Intervals and Point Estimates}{5}{subsection.7.4}%
+\contentsline {section}{\numberline {8}Residual Diagnostics}{5}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Residuals}{5}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Breusch--Pagan Test}{5}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Wald--Wolfowitz Runs Test}{6}{subsection.8.3}%
 \contentsline {subsection}{\numberline {8.4}Practical Guidance}{6}{subsection.8.4}%
-\contentsline {section}{\numberline {9}Summary of Assumptions}{7}{section.9}%
-\contentsline {paragraph}{When assumptions may be violated.}{7}{section.9}%
-\contentsline {section}{\numberline {10}Software Implementation Notes}{7}{section.10}%
+\contentsline {section}{\numberline {9}Summary of Assumptions}{6}{section.9}%
+\contentsline {paragraph}{When assumptions may be violated.}{6}{section*.6}%
+\contentsline {section}{\numberline {10}Implementation Notes}{6}{section.10}%

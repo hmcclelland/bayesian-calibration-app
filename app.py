@@ -41,10 +41,12 @@ else:
 # -- "Under the Hood" PDF link ---------------------------------------------
 _pdf_static = pathlib.Path(__file__).parent / "static" / "derivation.pdf"
 if _pdf_static.exists():
+    import os as _os
+    _pdf_mtime = int(_os.path.getmtime(_pdf_static))
     st.markdown(
-        '📄 <a href="app/static/derivation.pdf" '
-        'target="_blank"><strong>Under the Hood</strong> — '
-        'Mathematical derivation (PDF)</a>',
+        f'📄 <a href="app/static/derivation.pdf?v={_pdf_mtime}" '
+        f'target="_blank"><strong>Under the Hood</strong> — '
+        f'Mathematical derivation (PDF)</a>',
         unsafe_allow_html=True,
     )
 else:

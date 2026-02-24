@@ -18,7 +18,6 @@
 \usepackage{natbib}
 \usepackage{xcolor}
 \usepackage{fancyhdr}
-\usepackage{titlesec}
 
 \geometry{margin=2.5cm}
 \hypersetup{colorlinks=true,linkcolor=blue!70!black,citecolor=green!50!black,urlcolor=blue!60!black}
@@ -26,12 +25,10 @@
 % ---- theorem environments ---------------------------------------------------
 \theoremstyle{definition}
 \newtheorem{assumption}{Assumption}
-\newtheorem{definition}{Definition}
 \theoremstyle{plain}
 \newtheorem{proposition}{Proposition}
 
 % ---- shortcuts --------------------------------------------------------------
-\newcommand{\yobs}{\bm{y}^{\mathrm{obs}}}
 \newcommand{\xcal}{\bm{x}^{\mathrm{cal}}}
 \newcommand{\ycal}{\bm{y}^{\mathrm{cal}}}
 \newcommand{\thetab}{\bm{\theta}}
@@ -40,7 +37,6 @@
 \newcommand{\Var}{\mathrm{Var}}
 \newcommand{\N}{\mathcal{N}}
 \newcommand{\HN}{\mathcal{N}^{+}}
-\DeclareMathOperator*{\argmin}{arg\,min}
 
 % ---- header / footer --------------------------------------------------------
 \pagestyle{fancy}
@@ -54,8 +50,8 @@
 % =============================================================================
 
 \begin{center}
-    {\LARGE\bfseries Bayesian Calibration \&\\[4pt] Inverse Prediction}\\[12pt]
-    {\large Mathematical Derivation and Assumptions}\\[8pt]
+    {\LARGE\bfseries Bayesian Calibration \&\\[4pt] Inverse Prediction}\\[14pt]
+    {\large Mathematical Derivation and Assumptions}\\[10pt]
     {\normalsize McClelland Lab, University College London}\\[4pt]
     {\small\today}
 \end{center}
@@ -69,93 +65,102 @@
 \vspace{1.5em}
 
 % =============================================================================
-\section{Introduction and Motivation}
+\section{Introduction}
 % =============================================================================
 
-In analytical chemistry and bioassay work the standard calibration workflow is:
-\begin{enumerate}[nosep]
-    \item Prepare standards at known concentrations $x_1,\dots,x_n$.
-    \item Measure the instrument response $y_i$ for each standard.
-    \item Fit a calibration curve $y = f(x;\,\thetab)$.
-    \item For a new measurement $y^{*}$, \emph{invert} the curve to estimate the
-          unknown concentration $x^{*}$.
-\end{enumerate}
+In analytical chemistry and bioassay work a common workflow is to prepare
+standards at known concentrations, measure the instrument response for each,
+and fit a calibration curve.  The practical goal, however, is the
+\emph{reverse}: given a new instrument reading, estimate the unknown
+concentration that produced it.
 
-Step~4 is the \textbf{inverse prediction} (or \emph{calibration}) problem.
-Classical frequentist approaches (e.g.\ Fieller's theorem, Wald intervals)
-provide approximate confidence intervals for $x^{*}$, but they rely on
-asymptotic normality, do not propagate the full parameter uncertainty, and
-become unreliable for nonlinear models.
+This is the \textbf{inverse prediction} problem.  Classical approaches
+(Fieller's theorem, Wald intervals) provide approximate confidence intervals
+but rely on asymptotic normality, struggle with nonlinear models, and do not
+fully propagate parameter uncertainty.  A Bayesian treatment resolves these
+limitations naturally: we obtain the full joint posterior of the model
+parameters, then push every source of uncertainty---parameter estimation
+\emph{and} measurement noise---through the inverse to get a complete
+distribution over the unknown concentration.
 
-The Bayesian framework solves this naturally: we obtain the full joint
-posterior distribution of the model parameters, then propagate every source of
-uncertainty---parameter uncertainty \emph{and} measurement noise---through the
-inverse function to produce a posterior predictive distribution for $x^{*}$.
-
-This document provides a self-contained mathematical derivation of the method
-implemented in the accompanying Streamlit application.
+This document derives the method implemented in the accompanying Streamlit
+application.
 
 % =============================================================================
 \section{Notation}
 % =============================================================================
 
 \begin{center}
+\renewcommand{\arraystretch}{1.25}
 \begin{tabular}{cl}
     \toprule
     Symbol & Meaning \\
     \midrule
-    $n$ & Number of calibration observations \\
-    $x_i\in\R$ & Known standard value (concentration) for observation $i$ \\
-    $y_i\in\R$ & Measured instrument response for observation $i$ \\
-    $\xcal=(x_1,\dots,x_n)^\top$ & Vector of calibration $x$-values \\
-    $\ycal=(y_1,\dots,y_n)^\top$ & Vector of calibration $y$-values \\
-    $f(x;\,\thetab)$ & Forward (calibration) function \\
-    $\thetab=(\theta_1,\dots,\theta_p)^\top$ & Model parameters \\
-    $\sigma$ & Observation noise standard deviation \\
-    $y^{*}$ & A new observed response for which we wish to find $x^{*}$ \\
-    $x^{*}$ & The unknown quantity to be estimated via inverse prediction \\
+    $n$ & Number of calibration points \\
+    $x_i$ & Known standard value (e.g.\ concentration) for point $i$ \\
+    $y_i$ & Measured instrument response for point $i$ \\
+    $\xcal = (x_1,\dots,x_n)^\top$ & Calibration $x$-values \\
+    $\ycal = (y_1,\dots,y_n)^\top$ & Calibration $y$-values \\
+    $f(x;\,\thetab)$ & User-specified calibration function \\
+    $\thetab = (\theta_1,\dots,\theta_p)^\top$ & Model parameters \\
+    $\sigma$ & Noise standard deviation \\
+    $y^{*}$ & New observed response \\
+    $x^{*}$ & Unknown value to be estimated \\
     \bottomrule
 \end{tabular}
 \end{center}
 
 % =============================================================================
-\section{Forward Model}
-\label{sec:forward}
+\section{The Calibration Model}
+\label{sec:model}
 % =============================================================================
 
-\subsection{Homoscedastic Gaussian Likelihood}
+We begin with three assumptions that define the generative model for the
+calibration data.
 
-\begin{assumption}[Functional form]\label{ass:functional}
-    The calibration relationship is described by a known function
-    $f:\R\times\R^p\to\R$ that is continuous and differentiable almost
-    everywhere with respect to both $x$ and $\thetab$.  The user specifies this
-    function (e.g.\ $f(x;\,a,b)=a+bx$, or $f(x;\,a,b)=a\,e^{bx}$).
+\begin{assumption}[Calibration function]\label{ass:func}
+The relationship between the known value $x$ and the instrument response $y$ is
+described by a parametric function $f:\R\times\R^p\to\R$, specified by the
+user.  For example, $f(x;\,a,b)=a+bx$, or $f(x;\,a,b)=a\,e^{bx}$.  We require
+$f$ to be continuous and differentiable almost everywhere with respect to both
+$x$ and~$\thetab$.
 \end{assumption}
 
-\begin{assumption}[Additive Gaussian noise]\label{ass:noise}
-    Observations are generated by
-    \begin{equation}\label{eq:likelihood-scalar}
-        y_i = f(x_i;\,\thetab) + \varepsilon_i,
-        \qquad \varepsilon_i \stackrel{\mathrm{iid}}{\sim} \N(0,\,\sigma^2),
-        \qquad i=1,\dots,n.
-    \end{equation}
+\begin{assumption}[Gaussian noise]\label{ass:noise}
+Each observation is the true calibration value plus independent, identically
+distributed Gaussian noise:
+\begin{equation}\label{eq:obs-model}
+    y_i \;=\; f(x_i;\,\thetab) \;+\; \varepsilon_i,
+    \qquad
+    \varepsilon_i \;\stackrel{\mathrm{iid}}{\sim}\; \N(0,\,\sigma^2),
+    \qquad i = 1,\dots,n.
+\end{equation}
+The noise terms are mutually independent and independent of the standard
+values~$x_i$.
 \end{assumption}
 
-\begin{assumption}[Independence]\label{ass:indep}
-    The noise terms $\varepsilon_1,\dots,\varepsilon_n$ are mutually independent
-    and independent of the true concentrations $x_1,\dots,x_n$.
+\begin{assumption}[Differentiability]\label{ass:diff}
+The log-posterior is differentiable with respect to all continuous parameters.
+This is guaranteed by the SymPy-parsed equation and PyTensor's automatic
+differentiation, and is required by the gradient-based NUTS sampler
+(\Cref{sec:nuts}).
 \end{assumption}
 
-Under these assumptions the likelihood function is
+\noindent
+Under these assumptions the \textbf{likelihood} is
 \begin{equation}\label{eq:likelihood}
     p(\ycal \mid \xcal,\,\thetab,\,\sigma)
-    = \prod_{i=1}^{n} \frac{1}{\sqrt{2\pi}\,\sigma}
-      \exp\!\Bigl[-\frac{(y_i - f(x_i;\,\thetab))^2}{2\sigma^2}\Bigr].
+    \;=\; \prod_{i=1}^{n}
+        \frac{1}{\sqrt{2\pi}\,\sigma}\,
+        \exp\!\biggl[-\frac{\bigl(y_i - f(x_i;\,\thetab)\bigr)^{2}}
+                           {2\,\sigma^{2}}\biggr],
 \end{equation}
-
-Equivalently, in vector form with $\bm{\mu}=(f(x_1;\thetab),\dots,f(x_n;\thetab))^\top$:
+or equivalently, writing
+$\bm{\mu} = \bigl(f(x_1;\thetab),\dots,f(x_n;\thetab)\bigr)^\top$,
 \begin{equation}
-    \ycal \mid \thetab,\sigma \;\sim\; \N(\bm{\mu},\;\sigma^2 \mathbf{I}_n).
+    \ycal \mid \thetab,\,\sigma
+    \;\sim\;
+    \N\!\bigl(\bm{\mu},\;\sigma^{2}\,\mathbf{I}_{n}\bigr).
 \end{equation}
 
 % =============================================================================
@@ -163,29 +168,29 @@ Equivalently, in vector form with $\bm{\mu}=(f(x_1;\thetab),\dots,f(x_n;\thetab)
 \label{sec:priors}
 % =============================================================================
 
-\begin{assumption}[Weakly informative priors]\label{ass:priors}
-    We adopt the following independent prior distributions.
-\end{assumption}
-
+We place weakly informative, independent priors on all parameters:
 \begin{align}
-    \theta_j &\sim \N(0,\,10^2), \qquad j=1,\dots,p, \label{eq:prior-theta}\\
-    \sigma   &\sim \HN(0,\,10^2), \label{eq:prior-sigma}
+    \theta_j &\sim \N(0,\,10^{2}),
+        &&j = 1,\dots,p, \label{eq:prior-theta} \\[4pt]
+    \sigma &\sim \HN(10),
+        \label{eq:prior-sigma}
 \end{align}
-where $\HN(0,\,\tau^2)$ denotes the half-normal distribution (i.e.\ a normal
-distribution truncated to $(0,\infty)$).
+where $\HN(\tau)$ denotes the half-normal distribution with scale~$\tau$,
+i.e.\ a $\N(0,\tau^{2})$ truncated to the positive reals.
 
 \paragraph{Rationale.}
-The normal priors on $\thetab$ are centred at zero with standard deviation~10,
-which is deliberately vague for standardised data.  The half-normal priors on
-scale parameters ensure positivity while remaining weakly informative.  These
-defaults work well across a wide range of calibration problems; users with
-strong domain knowledge may wish to substitute more informative priors in the
-source code.
+The zero-centred normal priors on each~$\theta_j$ are deliberately vague
+(standard deviation~10).  The half-normal prior on~$\sigma$ enforces positivity
+while remaining uninformative over the plausible range of noise magnitudes.
+These defaults perform well across a broad class of calibration problems.  Users
+with strong domain knowledge may substitute tighter priors in the source code.
 
-\paragraph{Prior independence.}
-All parameters are assumed \emph{a priori} independent:
-\begin{equation}
-    p(\thetab,\sigma) = \Bigl[\prod_{j=1}^{p}p(\theta_j)\Bigr]\,p(\sigma).
+\paragraph{Joint prior.}
+Because the priors are independent,
+\begin{equation}\label{eq:joint-prior}
+    p(\thetab,\,\sigma)
+    \;=\;
+    \biggl[\prod_{j=1}^{p} p(\theta_j)\biggr]\;p(\sigma).
 \end{equation}
 
 % =============================================================================
@@ -193,23 +198,27 @@ All parameters are assumed \emph{a priori} independent:
 \label{sec:posterior}
 % =============================================================================
 
-By Bayes' theorem the joint posterior is
+Applying Bayes' theorem:
 \begin{equation}\label{eq:bayes}
-    \boxed{
-    p(\thetab,\sigma \mid \ycal,\xcal)
-    = \frac{p(\ycal \mid \xcal,\thetab,\sigma)\;p(\thetab,\sigma)}
-           {p(\ycal \mid \xcal)},
-    }
+    \boxed{\;
+    p(\thetab,\,\sigma \mid \ycal,\,\xcal)
+    \;=\;
+    \frac{p(\ycal \mid \xcal,\,\thetab,\,\sigma)\;\;
+          p(\thetab,\,\sigma)}
+         {p(\ycal \mid \xcal)}
+    \;}
 \end{equation}
 where the marginal likelihood (evidence) is
 \begin{equation}
-    p(\ycal\mid\xcal)
-    = \int p(\ycal\mid\xcal,\thetab,\sigma)\,p(\thetab,\sigma)
-      \;\mathrm{d}\thetab\;\mathrm{d}\sigma.
+    p(\ycal \mid \xcal)
+    \;=\;
+    \int p(\ycal \mid \xcal,\,\thetab,\,\sigma)\;
+         p(\thetab,\,\sigma)
+    \;\mathrm{d}\thetab\;\mathrm{d}\sigma.
 \end{equation}
-
-For most nonlinear calibration functions $f$ this integral is analytically
-intractable, so we resort to Markov chain Monte Carlo (MCMC) sampling.
+For most nonlinear calibration functions this integral is analytically
+intractable, so we approximate the posterior using Markov chain Monte Carlo
+sampling.
 
 % =============================================================================
 \section{MCMC Sampling via NUTS}
@@ -218,80 +227,79 @@ intractable, so we resort to Markov chain Monte Carlo (MCMC) sampling.
 
 \subsection{Hamiltonian Monte Carlo}
 
-Hamiltonian Monte Carlo (HMC) augments the parameter space with auxiliary
-momentum variables $\bm{r}\in\R^d$ (where $d=p+1$ for the homoscedastic model)
-and defines a joint density proportional to
+Hamiltonian Monte Carlo (HMC) \citep{neal2011} augments the parameter space
+with auxiliary momentum variables $\bm{r}\in\R^{d}$ (where $d = p+1$) and
+defines the joint density
 \begin{equation}
-    p(\thetab,\sigma,\bm{r})
-    \propto \exp\!\bigl[-U(\thetab,\sigma) - \tfrac{1}{2}\bm{r}^\top\mathbf{M}^{-1}\bm{r}\bigr],
+    p(\thetab,\,\sigma,\,\bm{r})
+    \;\propto\;
+    \exp\!\bigl[\,-U(\thetab,\sigma)
+                 - \tfrac{1}{2}\,\bm{r}^{\top}\mathbf{M}^{-1}\bm{r}\,\bigr],
 \end{equation}
-where the \emph{potential energy} is
+with \emph{potential energy}
 \begin{equation}
     U(\thetab,\sigma)
-    = -\log p(\ycal\mid\xcal,\thetab,\sigma) - \log p(\thetab,\sigma),
+    \;=\;
+    -\log p(\ycal \mid \xcal,\,\thetab,\,\sigma)
+    \;-\; \log p(\thetab,\,\sigma)
 \end{equation}
-and $\mathbf{M}$ is a mass matrix (typically adapted during warm-up to
-approximate the posterior covariance).
+and mass matrix $\mathbf{M}$ (adapted during warm-up to approximate the
+posterior covariance).
 
-HMC simulates Hamiltonian dynamics via the leapfrog integrator:
+HMC simulates Hamiltonian dynamics using the leapfrog integrator with step
+size~$\epsilon$:
 \begin{align}
-    \bm{r}_{t+\epsilon/2} &= \bm{r}_t - \frac{\epsilon}{2}\,\nabla_{\thetab}U(\thetab_t), \\
-    \thetab_{t+\epsilon}   &= \thetab_t + \epsilon\,\mathbf{M}^{-1}\bm{r}_{t+\epsilon/2}, \\
-    \bm{r}_{t+\epsilon}   &= \bm{r}_{t+\epsilon/2} - \frac{\epsilon}{2}\,\nabla_{\thetab}U(\thetab_{t+\epsilon}),
+    \bm{r}_{t+\epsilon/2}
+        &= \bm{r}_{t}
+           - \tfrac{\epsilon}{2}\,\nabla_{\thetab}\,U(\thetab_{t}),
+    \\
+    \thetab_{t+\epsilon}
+        &= \thetab_{t}
+           + \epsilon\,\mathbf{M}^{-1}\,\bm{r}_{t+\epsilon/2},
+    \\
+    \bm{r}_{t+\epsilon}
+        &= \bm{r}_{t+\epsilon/2}
+           - \tfrac{\epsilon}{2}\,\nabla_{\thetab}\,U(\thetab_{t+\epsilon}).
 \end{align}
-for $L$ leapfrog steps with step size $\epsilon$.  The proposal is accepted
-with probability $\min(1,\,\exp(-\Delta H))$ where $\Delta H$ is the change in
-Hamiltonian.
+After $L$ leapfrog steps the proposal is accepted with probability
+$\min\!\bigl(1,\,\exp(-\Delta H)\bigr)$, where $\Delta H$ is the change in
+the Hamiltonian.
 
-\begin{assumption}[Differentiability for HMC]\label{ass:diff}
-    The log-posterior $\log p(\thetab,\sigma\mid\ycal,\xcal)$ is differentiable
-    with respect to all continuous parameters.  This is required for the
-    gradient-based HMC sampler.  SymPy-parsed expressions are analytically
-    differentiable, and PyTensor provides automatic differentiation.
-\end{assumption}
+\subsection{The No-U-Turn Sampler}
 
-\subsection{The No-U-Turn Sampler (NUTS)}
-
-NUTS \citep{hoffman2014} eliminates the need to hand-tune $L$ and $\epsilon$.
-It builds a balanced binary tree of leapfrog steps, doubling the trajectory
-length until a ``U-turn'' criterion is met:
+NUTS \citep{hoffman2014} removes the need to choose~$L$ by building a balanced
+binary tree of leapfrog steps.  The tree doubles in size until a ``U-turn''
+is detected:
 \begin{equation}
-    \bm{r}\cdot(\thetab^{+} - \thetab^{-}) < 0
-    \quad\text{or}\quad
-    \bm{r}\cdot(\thetab^{-} - \thetab^{+}) < 0,
+    \bm{r}\cdot(\thetab^{+}-\thetab^{-}) < 0
+    \qquad\text{or}\qquad
+    \bm{r}\cdot(\thetab^{-}-\thetab^{+}) < 0,
 \end{equation}
-where $\thetab^{+}$ and $\thetab^{-}$ are the forward and backward ends of the
-trajectory.  A multinomial sampling scheme selects the next state from the
-trajectory, weighted by the un-normalised density.
+where $\thetab^{+}$ and $\thetab^{-}$ are the trajectory endpoints.
+A multinomial scheme selects the next state from the trajectory, weighted by
+the unnormalised density.  The step size~$\epsilon$ is tuned during warm-up
+via dual averaging \citep{nesterov2009} to target an acceptance rate of
+${\sim}\,0.8$.
 
-The step size $\epsilon$ is adapted during the warm-up phase using dual
-averaging \citep{nesterov2009} to target an acceptance probability of
-approximately 0.8.
+\subsection{Warm-up, Sampling, and Diagnostics}
 
-\subsection{Warm-up and Adaptation}
-
-During the warm-up (tuning) phase:
 \begin{enumerate}[nosep]
-    \item The step size $\epsilon$ is adapted.
-    \item The mass matrix $\mathbf{M}$ is estimated from sample covariance.
-    \item Warm-up draws are \emph{discarded} and not used for inference.
+    \item \textbf{Warm-up.}  The step size and mass matrix are adapted; these
+          draws are discarded.
+    \item \textbf{Sampling.}  $S$~draws are collected from each of
+          $C$~independent chains, giving $N = S \times C$ posterior samples
+          $\{(\thetab^{(s)},\,\sigma^{(s)})\}_{s=1}^{N}$.
+    \item \textbf{Convergence checks.}  The application reports:
+    \begin{itemize}[nosep]
+        \item $\hat{R}$ (Gelman--Rubin statistic): values $\lesssim 1.01$
+              indicate convergence \citep{gelman2013}.
+        \item Effective sample size ($n_{\mathrm{eff}}$): the number of
+              effectively independent draws after accounting for
+              autocorrelation.
+        \item Monte Carlo standard error (MCSE): the precision of the
+              posterior mean estimate.
+    \end{itemize}
 \end{enumerate}
-
-After warm-up, $S$ draws $\{(\thetab^{(s)},\sigma^{(s)})\}_{s=1}^{S}$ are
-collected from each of $C$ independent chains, giving a total of $N=S\times C$
-posterior draws.
-
-\subsection{Convergence Diagnostics}
-
-The application reports the ArviZ summary statistics including:
-\begin{itemize}[nosep]
-    \item $\hat{R}$ (Gelman--Rubin statistic): values $\lesssim 1.01$ indicate
-          convergence.
-    \item Effective sample size ($n_{\mathrm{eff}}$): the number of effectively
-          independent draws, accounting for autocorrelation.
-    \item Monte Carlo standard error (MCSE): the standard error of the
-          posterior mean estimate.
-\end{itemize}
 
 % =============================================================================
 \section{Inverse Prediction}
@@ -300,99 +308,92 @@ The application reports the ArviZ summary statistics including:
 
 \subsection{Problem Statement}
 
-Given a new observed response $y^{*}$, we seek the posterior predictive
-distribution of the unknown $x^{*}$ that produced it.
-
-\begin{assumption}[New observation model]\label{ass:new-obs}
-    The new measurement follows the same generative process as the calibration
-    data:
-    \begin{equation}\label{eq:new-obs}
-        y^{*} = f(x^{*};\,\thetab) + \varepsilon^{*},
-        \qquad \varepsilon^{*}\sim\N(0,\,\sigma^{2}).
-    \end{equation}
-\end{assumption}
+Given a new instrument reading $y^{*}$, we want the posterior predictive
+distribution of the unknown value $x^{*}$ that produced it.  We assume the new
+observation arises from the same process as the calibration data:
+\begin{equation}\label{eq:new-obs}
+    y^{*} \;=\; f(x^{*};\,\thetab) \;+\; \varepsilon^{*},
+    \qquad
+    \varepsilon^{*} \sim \N(0,\,\sigma^{2}).
+\end{equation}
 
 \subsection{Posterior Predictive Distribution of \texorpdfstring{$x^{*}$}{x*}}
 
-The key quantity is
+The target distribution is obtained by marginalising over the posterior:
 \begin{equation}\label{eq:ppd}
-    \boxed{
+    \boxed{\;
     p(x^{*} \mid y^{*},\,\ycal,\,\xcal)
-    = \int p(x^{*} \mid y^{*},\,\thetab,\,\sigma)\;
-           p(\thetab,\sigma\mid\ycal,\xcal)
-      \;\mathrm{d}\thetab\;\mathrm{d}\sigma.
-    }
+    \;=\;
+    \int p(x^{*} \mid y^{*},\,\thetab,\,\sigma)\;\;
+         p(\thetab,\,\sigma \mid \ycal,\,\xcal)
+    \;\mathrm{d}\thetab\;\mathrm{d}\sigma
+    \;}
 \end{equation}
+This integral propagates \emph{both} parameter uncertainty and measurement
+noise into the prediction.  We evaluate it by Monte Carlo:
 
-This integral marginalises over the full posterior uncertainty in $\thetab$ and
-$\sigma$.  We approximate it by Monte Carlo:
-
-\begin{proposition}[Monte Carlo inverse prediction]\label{prop:mc-inverse}
-    For each posterior draw $(\thetab^{(s)},\sigma^{(s)})$, $s=1,\dots,N$:
-    \begin{enumerate}[nosep]
-        \item Sample a ``noisy'' response:
-              $\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$
-              where $\epsilon^{(s)}\sim\N(0,\,\sigma^{(s)2})$.
-        \item Invert the forward model:
-              $x^{*(s)} = f^{-1}(\tilde{y}^{(s)};\,\thetab^{(s)})$.
-    \end{enumerate}
-    The collection $\{x^{*(s)}\}_{s=1}^{N}$ is a sample from the posterior
-    predictive distribution $p(x^{*}\mid y^{*},\ycal,\xcal)$.
+\begin{proposition}[Monte Carlo inverse prediction]\label{prop:mc}
+For each posterior draw $(\thetab^{(s)},\,\sigma^{(s)})$, $s=1,\dots,N$:
+\begin{enumerate}[nosep]
+    \item \textbf{Add noise:}\;
+          $\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$\;
+          where\; $\epsilon^{(s)} \sim \N(0,\,\sigma^{(s)2})$.
+    \item \textbf{Invert:}\;
+          $x^{*(s)} = f^{-1}\!\bigl(\tilde{y}^{(s)};\,\thetab^{(s)}\bigr)$.
+\end{enumerate}
+The resulting collection $\{x^{*(s)}\}_{s=1}^{N}$ is a sample from
+$p(x^{*} \mid y^{*},\,\ycal,\,\xcal)$.
 \end{proposition}
 
 \begin{proof}
-By the law of total probability:
-\begin{align}
-    p(x^{*}\mid y^{*},\ycal,\xcal)
-    &= \int p(x^{*}\mid y^{*},\thetab,\sigma)\,
-            p(\thetab,\sigma\mid\ycal,\xcal)
-       \;\mathrm{d}\thetab\,\mathrm{d}\sigma.
-\end{align}
-For a given $(\thetab,\sigma)$, the forward model is deterministic, so
-$x^{*}=f^{-1}(y^{*}-\varepsilon^{*};\,\thetab)$ where
-$\varepsilon^{*}\sim\N(0,\sigma^2)$.  Sampling
-$\tilde{y}^{(s)}=y^{*}+\epsilon^{(s)}$ with $\epsilon^{(s)}\sim\N(0,\sigma^{(s)2})$
-is equivalent to sampling the ``true'' response $y^{*}-\varepsilon^{*}$ from
-the predictive distribution at that draw.  Since $(\thetab^{(s)},\sigma^{(s)})$
-are draws from $p(\thetab,\sigma\mid\ycal,\xcal)$, the composition yields draws
-from the marginal \eqref{eq:ppd}.
+For fixed $(\thetab,\sigma)$ the forward model is deterministic, so
+$x^{*} = f^{-1}(y^{*} - \varepsilon^{*};\,\thetab)$ with
+$\varepsilon^{*}\sim\N(0,\sigma^{2})$.  Drawing
+$\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$ where
+$\epsilon^{(s)}\sim\N(0,\sigma^{(s)2})$ is equivalent to sampling the
+noise-free response from the predictive distribution at draw~$s$.
+Since the draws $(\thetab^{(s)},\sigma^{(s)})$ come from the posterior
+$p(\thetab,\sigma\mid\ycal,\xcal)$, the composition produces samples from the
+marginal~\eqref{eq:ppd}.
 \end{proof}
 
 \subsection{Inversion Methods}
 
 \paragraph{Symbolic inverse.}
-When $f$ is algebraically invertible with respect to $x$, SymPy computes the
-closed-form solution $x=f^{-1}(y;\,\thetab)$.  If multiple real solutions exist
-(e.g.\ for a quadratic), the solution closest to the centroid of the
-calibration $x$-values is selected.
+When $f$ is algebraically invertible, SymPy computes
+$x = f^{-1}(y;\,\thetab)$ in closed form.  If multiple real solutions exist
+(e.g.\ for a quadratic), the one closest to the centroid of the calibration
+$x$-values is selected.
 
 \paragraph{Numerical inverse.}
-When no closed-form inverse exists, Brent's method is applied to find the root
-of
+When no closed form exists, Brent's root-finding method
+\citep{brent1973} solves
 \begin{equation}
-    h(x) = f(x;\,\thetab^{(s)}) - \tilde{y}^{(s)} = 0
+    f(x;\,\thetab^{(s)}) - \tilde{y}^{(s)} = 0
 \end{equation}
-over a search interval $[x_{\min}-3\Delta x,\;x_{\max}+3\Delta x]$ where
-$\Delta x = x_{\max}-x_{\min}$.  Brent's method combines bisection,
-secant, and inverse quadratic interpolation, guaranteeing convergence for
-continuous functions with a sign change.
+over the interval
+$\bigl[x_{\min} - 3\,\Delta x,\;\; x_{\max} + 3\,\Delta x\bigr]$
+where $\Delta x = x_{\max} - x_{\min}$.
+Brent's method combines bisection, secant, and inverse quadratic
+interpolation, guaranteeing convergence whenever a sign change exists.
 
-\subsection{Credible Intervals}
+\subsection{Credible Intervals and Point Estimates}
 
-From the $N$ draws $\{x^{*(s)}\}$, after removing any non-finite values
-(from failed inversions), the $100(1-\alpha)\%$ equal-tailed credible interval
-is
+From the $N$ draws $\{x^{*(s)}\}$ (after discarding any non-finite values from
+failed inversions), the $100(1-\alpha)\%$ equal-tailed credible interval is
 \begin{equation}
     \mathrm{CI}_{1-\alpha}
-    = \bigl[Q_{\alpha/2},\; Q_{1-\alpha/2}\bigr],
+    \;=\;
+    \bigl[\,Q_{\alpha/2},\;\; Q_{1-\alpha/2}\,\bigr],
 \end{equation}
-where $Q_q$ denotes the $q$-th quantile of the empirical distribution.
-
-Point estimates reported:
+where $Q_{q}$ is the $q$-th sample quantile.  The application also reports:
 \begin{align}
-    \hat{x}_{\mathrm{median}} &= Q_{0.5}, \\
-    \hat{x}_{\mathrm{mean}}   &= \frac{1}{N}\sum_{s=1}^{N}x^{*(s)}, \\
-    \hat{\sigma}_{x}          &= \sqrt{\frac{1}{N-1}\sum_{s=1}^{N}(x^{*(s)}-\hat{x}_{\mathrm{mean}})^2}.
+    \hat{x}_{\mathrm{median}} &= Q_{0.5}, \\[2pt]
+    \hat{x}_{\mathrm{mean}}
+        &= \frac{1}{N}\sum_{s=1}^{N} x^{*(s)}, \\[2pt]
+    \hat{\sigma}_{x}
+        &= \sqrt{\frac{1}{N-1}
+           \sum_{s=1}^{N}\bigl(x^{*(s)} - \hat{x}_{\mathrm{mean}}\bigr)^{2}}.
 \end{align}
 
 % =============================================================================
@@ -400,80 +401,66 @@ Point estimates reported:
 \label{sec:diagnostics}
 % =============================================================================
 
-After fitting the model, the application performs residual
-diagnostics to assess model adequacy.  These diagnostics help the user decide
-whether the chosen equation is appropriate or whether a different functional
-form or data transformation should be tried.
+After fitting the model, the application runs automated diagnostics to help the
+user assess whether the chosen equation and the noise assumptions are adequate.
 
-\subsection{Residual Computation}
+\subsection{Residuals}
 
-The residuals are computed at the posterior median parameter values
-$\hat{\thetab}=\mathrm{median}\{\thetab^{(s)}\}$:
+Residuals are evaluated at the posterior median parameters
+$\hat{\thetab} = \mathrm{median}\{\thetab^{(s)}\}$:
 \begin{equation}
-    e_i = y_i - f(x_i;\,\hat{\thetab}), \qquad i=1,\dots,n.
+    e_i \;=\; y_i \;-\; f(x_i;\,\hat{\thetab}),
+    \qquad i = 1,\dots,n.
 \end{equation}
+Two plots are shown: residuals versus fitted values~$\hat{y}_i$ and residuals
+versus~$x_i$.
 
-\subsection{Breusch--Pagan Test for Heteroscedasticity}
+\subsection{Breusch--Pagan Test}
 
-The Breusch--Pagan test \citep{breusch1979} tests
+The Breusch--Pagan test \citep{breusch1979} checks whether the variance of
+the residuals depends on the fitted values:
 \begin{equation}
-    H_0:\;\Var(\varepsilon_i)=\sigma^2\;\;\forall\,i
+    H_0:\;\Var(\varepsilon_i) = \sigma^{2}\;\;\forall\,i
     \qquad\text{vs.}\qquad
-    H_1:\;\Var(\varepsilon_i)=h(\bm{z}_i^\top\bm{\gamma}),
+    H_1:\;\Var(\varepsilon_i) = h(\bm{z}_i^{\top}\bm{\gamma}).
 \end{equation}
-where $\bm{z}_i$ is a vector of regressors (here, the fitted values
-$\hat{y}_i$).
+The procedure regresses the squared residuals $e_i^{2}$ on the fitted
+values by OLS and computes the LM statistic
+$\mathrm{LM} = \tfrac{1}{2}\,\mathrm{ESS}$, which follows a $\chi^{2}_{1}$
+distribution under $H_0$.  A $p$-value below 0.05 indicates that the noise
+spread changes with signal level.  In that case, the application advises
+applying a variance-stabilising transformation (e.g.\
+$\log y$ or $\sqrt{y}$) before re-fitting.
 
-The test procedure:
-\begin{enumerate}[nosep]
-    \item Compute squared residuals $e_i^2$.
-    \item Regress $e_i^2$ on $\bm{z}_i$ by OLS.
-    \item The LM statistic is $\mathrm{LM}=\frac{1}{2}\,\mathrm{ESS}$, where
-          ESS is the explained sum of squares of this auxiliary regression.
-    \item Under $H_0$, $\mathrm{LM}\sim\chi^2_k$ where $k$ is the number of
-          regressors (here $k=1$).
-\end{enumerate}
+\subsection{Wald--Wolfowitz Runs Test}
 
-A $p$-value below 0.05 indicates significant heteroscedasticity.  In such
-cases the application advises the user to consider data transformations (e.g.\
-taking $\log y$ or $\sqrt{y}$) to stabilise the variance before re-fitting,
-rather than modelling the variance structure directly.
-
-\subsection{Wald--Wolfowitz Runs Test for Randomness}
-
-The runs test \citep{wald1940} assesses whether the sequence of residual signs
-(positive/negative) is random.
-
-Let $n_+$ and $n_-$ be the counts of positive and negative residuals, and $R$
-the number of runs (maximal consecutive subsequences of the same sign).  Under
-$H_0$ (random ordering):
+The runs test \citep{wald1940} assesses whether the sign pattern of the
+residuals ($+$/$-$) is random.
+Let $n_{+}$ and $n_{-}$ be the counts of positive and negative residuals, and
+$R$ the number of runs.  Under $H_0$ (random ordering):
 \begin{align}
-    \E[R] &= \frac{2n_+n_-}{n_++n_-}+1, \\
-    \Var(R) &= \frac{2n_+n_-(2n_+n_--n_+-n_-)}{(n_++n_-)^2(n_++n_--1)}.
+    \E[R]
+        &= 1 + \frac{2\,n_{+}\,n_{-}}{n_{+}+n_{-}}\,,
+    \\[4pt]
+    \Var(R)
+        &= \frac{2\,n_{+}\,n_{-}\,(2\,n_{+}\,n_{-} - n_{+} - n_{-})}
+               {(n_{+}+n_{-})^{2}\,(n_{+}+n_{-}-1)}\,.
 \end{align}
-The standardised test statistic $Z=(R-\E[R])/\sqrt{\Var(R)}$ is approximately
-standard normal for large $n$.
-
-A $p$-value below 0.05 suggests systematic (non-random) structure in the
-residuals, indicating potential model misspecification.  In such cases the
-application advises the user to try a different functional form (e.g.\ adding a
-polynomial term or switching to a nonlinear model).
+The standardised statistic $Z = (R - \E[R])/\!\sqrt{\Var(R)}$ is approximately
+standard normal.  A $p$-value below 0.05 suggests systematic structure that the
+model does not capture; the user should consider a different functional form.
 
 \subsection{Practical Guidance}
 
-Based on the diagnostic results, the application presents the following
-guidance to the user:
-
+Based on the diagnostics the application presents the following advice:
 \begin{itemize}[nosep]
-    \item \textbf{Systematic pattern in residuals} (e.g.\ curvature): try a
-          different model, such as adding a polynomial term or switching to an
-          exponential or power-law form.
-    \item \textbf{Fan-shaped / non-constant spread} (heteroscedasticity): try
-          a variance-stabilising transformation such as $\log(y)$ or
-          $\sqrt{y}$ before fitting.
-    \item \textbf{Isolated outliers}: check for data entry errors; consider
-          removing the suspect point and re-fitting.
-    \item \textbf{Random scatter around zero}: the model assumptions appear
+    \item \textbf{Curved / trending residuals:} try a different model (e.g.\
+          add a polynomial term, switch to an exponential or power law).
+    \item \textbf{Fan-shaped spread:} try a variance-stabilising
+          transformation such as $\log(y)$ or $\sqrt{y}$ before fitting.
+    \item \textbf{Isolated outliers:} check for data-entry errors; consider
+          excluding the suspect point and re-fitting.
+    \item \textbf{Random scatter around zero:} the model assumptions appear
           satisfied.
 \end{itemize}
 
@@ -482,62 +469,57 @@ guidance to the user:
 \label{sec:assumptions}
 % =============================================================================
 
-For clarity we collect all assumptions:
-
-\begin{enumerate}[nosep]
-    \item[\ref{ass:functional}] The user-specified functional form $f(x;\thetab)$
-          is a correct (or adequate) description of the calibration relationship.
-    \item[\ref{ass:noise}] Observation noise is additive and Gaussian with
-          constant variance.
-    \item[\ref{ass:indep}] Observations are mutually independent conditional on
-          the parameters.
-    \item[\ref{ass:priors}] Prior distributions are weakly informative
-          (zero-centred normals for location parameters, half-normals for scale
-          parameters).
-    \item[\ref{ass:diff}] The log-posterior is differentiable w.r.t.\ all
-          continuous parameters (required for NUTS).
-    \item[\ref{ass:new-obs}] New observations follow the same generative process
-          as the calibration data (no distribution shift).
+\begin{enumerate}[nosep,leftmargin=2em]
+    \item The user-specified function $f(x;\thetab)$ adequately describes the
+          calibration relationship
+          (\Cref{ass:func}).
+    \item Observation noise is additive, Gaussian, and i.i.d.\ with constant
+          variance~$\sigma^{2}$
+          (\Cref{ass:noise}).
+    \item The log-posterior is differentiable with respect to all continuous
+          parameters
+          (\Cref{ass:diff}).
+    \item Prior distributions are weakly informative and mutually independent
+          (\Cref{sec:priors}).
+    \item New measurements follow the same generative process as the
+          calibration data (no distribution shift).
 \end{enumerate}
 
 \paragraph{When assumptions may be violated.}
 \begin{itemize}[nosep]
-    \item If the functional form is wrong, residual diagnostics (runs test)
-          should flag systematic patterns.  The user should try a different
-          equation.
-    \item If noise variance is not constant (heteroscedasticity), the
-          Breusch--Pagan test will flag this.  A variance-stabilising
-          transformation (e.g.\ $\log y$) is recommended before re-fitting.
-    \item If noise is non-Gaussian (e.g.\ heavy-tailed), the posterior and
-          credible intervals may undercover.  Robust likelihood extensions
-          (e.g.\ Student-$t$) can be implemented as future work.
-    \item If observations are correlated (e.g.\ temporal drift), the
-          independence assumption is violated and the credible intervals will be
-          too narrow.
+    \item \emph{Wrong functional form.}  The runs test will flag non-random
+          residual patterns; try a different equation.
+    \item \emph{Non-constant variance.}  The Breusch--Pagan test will flag
+          this; apply a variance-stabilising transform (e.g.\ $\log y$) and
+          re-fit.
+    \item \emph{Non-Gaussian noise.}  Heavy tails may cause credible intervals
+          to undercover.  A Student-$t$ likelihood could be added in future.
+    \item \emph{Correlated observations.}  If measurements are time-dependent,
+          the independence assumption is violated and intervals will be too
+          narrow.
 \end{itemize}
 
 % =============================================================================
-\section{Software Implementation Notes}
+\section{Implementation Notes}
 \label{sec:software}
 % =============================================================================
 
 \begin{itemize}[nosep]
-    \item \textbf{Equation parsing:} SymPy's parser with implicit
-          multiplication and \texttt{convert\_xor} transformations.
-    \item \textbf{Automatic differentiation:} PyTensor (the tensor backend
-          of PyMC) provides exact gradients for HMC/NUTS.
-    \item \textbf{Sampling:} PyMC v5.10+ with the default NUTS sampler.
-    \item \textbf{Diagnostics:} ArviZ for convergence statistics;
-          statsmodels for the Breusch--Pagan and runs tests.
+    \item \textbf{Equation parsing:} SymPy with implicit multiplication and
+          \texttt{convert\_xor} transformations.
+    \item \textbf{Automatic differentiation:} PyTensor provides exact
+          gradients for the NUTS sampler.
+    \item \textbf{Sampling:} PyMC\,$\ge$\,5.10 with the default NUTS
+          implementation.
+    \item \textbf{Diagnostics:} ArviZ for convergence statistics; statsmodels
+          for the Breusch--Pagan test; the Wald--Wolfowitz test is implemented
+          directly using SciPy.
     \item \textbf{Numerical inversion:} SciPy's \texttt{brentq} with
-          tolerance $10^{-10}$.
+          tolerance~$10^{-10}$.
 \end{itemize}
 
 % =============================================================================
-% References
-% =============================================================================
 \bibliographystyle{plainnat}
-
 \begin{thebibliography}{9}
 
 \bibitem[Breusch and Pagan(1979)]{breusch1979}
@@ -545,51 +527,44 @@ T.~S. Breusch and A.~R. Pagan.
 \newblock A simple test for heteroscedasticity and random coefficient variation.
 \newblock \emph{Econometrica}, 47(5):1287--1294, 1979.
 
+\bibitem[Brent(1973)]{brent1973}
+R.~P. Brent.
+\newblock \emph{Algorithms for Minimization without Derivatives}.
+\newblock Prentice-Hall, 1973.
+
+\bibitem[Gelman et~al.(2013)]{gelman2013}
+A.~Gelman, J.~B. Carlin, H.~S. Stern, D.~B. Dunson, A.~Vehtari, and
+D.~B. Rubin.
+\newblock \emph{Bayesian Data Analysis}.
+\newblock Chapman \& Hall/CRC, 3rd edition, 2013.
+
 \bibitem[Hoffman and Gelman(2014)]{hoffman2014}
 M.~D. Hoffman and A.~Gelman.
 \newblock The {No-U-Turn} sampler: adaptively setting path lengths in
-  {H}amiltonian {M}onte {C}arlo.
+{Hamiltonian Monte Carlo}.
 \newblock \emph{Journal of Machine Learning Research}, 15:1593--1623, 2014.
+
+\bibitem[Neal(2011)]{neal2011}
+R.~M. Neal.
+\newblock {MCMC} using {Hamiltonian} dynamics.
+\newblock In S.~Brooks, A.~Gelman, G.~L. Jones, and X.-L. Meng, editors,
+\emph{Handbook of Markov Chain Monte Carlo}, chapter~5.
+Chapman \& Hall/CRC, 2011.
 
 \bibitem[Nesterov(2009)]{nesterov2009}
 Y.~Nesterov.
 \newblock Primal-dual subgradient methods for convex problems.
 \newblock \emph{Mathematical Programming}, 120(1):221--259, 2009.
 
+\bibitem[Salvatier et~al.(2016)]{salvatier2016}
+J.~Salvatier, T.~V. Wiecki, and C.~Fonnesbeck.
+\newblock Probabilistic programming in {Python} using {PyMC3}.
+\newblock \emph{PeerJ Computer Science}, 2:e55, 2016.
+
 \bibitem[Wald and Wolfowitz(1940)]{wald1940}
 A.~Wald and J.~Wolfowitz.
 \newblock On a test whether two samples are from the same population.
 \newblock \emph{The Annals of Mathematical Statistics}, 11(2):147--162, 1940.
-
-\bibitem[Gelman et~al.(2013)]{gelman2013}
-A.~Gelman, J.~B. Carlin, H.~S. Stern, D.~B. Dunson, A.~Vehtari, and
-  D.~B. Rubin.
-\newblock \emph{Bayesian Data Analysis}.
-\newblock Chapman \& Hall/CRC, 3rd edition, 2013.
-
-\bibitem[Salvatier et~al.(2016)]{salvatier2016}
-J.~Salvatier, T.~V. Wiecki, and C.~Fonnesbeck.
-\newblock Probabilistic programming in {P}ython using {PyMC3}.
-\newblock \emph{PeerJ Computer Science}, 2:e55, 2016.
-
-\bibitem[Neal(2011)]{neal2011}
-R.~M. Neal.
-\newblock {MCMC} using {H}amiltonian dynamics.
-\newblock In S.~Brooks, A.~Gelman, G.~L. Jones, and X.-L. Meng, editors,
-  \emph{Handbook of Markov Chain Monte Carlo}, chapter~5. Chapman \&
-  Hall/CRC, 2011.
-
-\bibitem[Eisenhart(1939)]{eisenhart1939}
-C.~Eisenhart.
-\newblock The interpretation of certain regression methods and their use in
-  biological and industrial research.
-\newblock \emph{The Annals of Mathematical Statistics}, 10(2):162--186, 1939.
-
-\bibitem[Hoadley(1970)]{hoadley1970}
-B.~Hoadley.
-\newblock A {B}ayesian look at inverse linear regression.
-\newblock \emph{Journal of the American Statistical Association},
-  65(329):356--369, 1970.
 
 \end{thebibliography}
 
