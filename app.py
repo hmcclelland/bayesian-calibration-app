@@ -788,93 +788,148 @@ else:
         y_pred = eq_model_r.forward_numpy(median_params, x_cal)
         residuals = y_cal - y_pred
 
+        # -- Compute posterior prediction envelope on a fine x-grid --------
+        x_grid_res = np.linspace(x_cal.min() * 0.9, x_cal.max() * 1.1, 200)
+        n_total_res = len(posterior[eq_model_r.param_names[0]])
+        n_env = min(500, n_total_res)
+        idx_env = np.random.choice(n_total_res, n_env, replace=False)
+
+        # For each posterior draw, compute predicted mean AND predicted sd
+        # at every grid point, then sample a y* to build the full
+        # prediction distribution (mean + noise).
+        mu_grid_draws = np.empty((n_env, len(x_grid_res)))
+        y_grid_draws = np.empty((n_env, len(x_grid_res)))
+        sigma_draws_arr = posterior["sigma"]
+
+        # Collect variance-model parameter draws
+        _var_param_draws_res = {}
+        if stored_var_model is not None:
+            for vp in stored_var_model.param_names:
+                _var_param_draws_res[vp] = posterior.get(
+                    vp, np.ones(n_total_res))
+
+        for j, idx in enumerate(idx_env):
+            p_j = {k: posterior[k][idx] for k in eq_model_r.param_names}
+            mu_j = eq_model_r.forward_numpy(p_j, x_grid_res)
+            mu_grid_draws[j] = mu_j
+            # Compute observation-level sd at each grid point
+            if stored_var_model is not None:
+                vp_j = {vp: _var_param_draws_res[vp][idx]
+                        for vp in stored_var_model.param_names}
+                sd_j = stored_var_model.sd_numpy(
+                    mu_j,
+                    np.full_like(mu_j, sigma_draws_arr[idx]),
+                    {k: np.full_like(mu_j, v) for k, v in vp_j.items()},
+                )
+            else:
+                sd_j = np.full_like(mu_j, sigma_draws_arr[idx])
+            sd_j = np.maximum(sd_j, 1e-12)
+            y_grid_draws[j] = mu_j + np.random.randn(len(x_grid_res)) * sd_j
+
+        # Posterior median of the mean curve (for the "zero" residual line)
+        mu_grid_median = np.median(mu_grid_draws, axis=0)
+
+        # Prediction-interval envelopes (relative to the median mean,
+        # so the residual plot shows them centred on zero)
+        resid_grid_draws = y_grid_draws - mu_grid_median[np.newaxis, :]
+
+        pct_1s_lo = np.percentile(resid_grid_draws, 15.87, axis=0)
+        pct_1s_hi = np.percentile(resid_grid_draws, 84.13, axis=0)
+        pct_2s_lo = np.percentile(resid_grid_draws, 2.28, axis=0)
+        pct_2s_hi = np.percentile(resid_grid_draws, 97.72, axis=0)
+
+        # -- Compute observation-level predicted sd at each calibration x
+        #    using posterior medians (for standardised residuals) -----------
+        median_sigma = np.median(sigma_draws_arr)
+        if stored_var_model is not None:
+            median_var_params = {
+                vp: np.median(_var_param_draws_res[vp])
+                for vp in stored_var_model.param_names
+            }
+            sd_at_cal = stored_var_model.sd_numpy(
+                y_pred,
+                np.full_like(y_pred, median_sigma),
+                {k: np.full_like(y_pred, v)
+                 for k, v in median_var_params.items()},
+            )
+        else:
+            sd_at_cal = np.full_like(y_pred, median_sigma)
+        sd_at_cal = np.maximum(sd_at_cal, 1e-12)
+        std_residuals = residuals / sd_at_cal
+
+        # -- Plot A: Residuals vs X with prediction interval ---------------
+        # -- Plot B: Standardised residuals vs X ---------------------------
         col_res1, col_res2 = st.columns(2)
 
         with col_res1:
-            fig_rvf, ax_rvf = plt.subplots(figsize=(5, 3.5))
-            ax_rvf.scatter(y_pred, residuals, c="steelblue", s=40,
-                           edgecolors="k", linewidths=0.5)
-            ax_rvf.axhline(0, color="red", ls="--", lw=1)
-            ax_rvf.set_xlabel("Fitted values (Ŷ)")
-            ax_rvf.set_ylabel("Residuals (Y − Ŷ)")
-            ax_rvf.set_title("Residuals vs Fitted")
-            fig_rvf.tight_layout()
-            st.pyplot(fig_rvf)
-            plt.close(fig_rvf)
+            fig_ra, ax_ra = plt.subplots(figsize=(5, 3.5))
+            ax_ra.fill_between(x_grid_res, pct_2s_lo, pct_2s_hi,
+                               color="steelblue", alpha=0.15,
+                               label="±2σ prediction")
+            ax_ra.fill_between(x_grid_res, pct_1s_lo, pct_1s_hi,
+                               color="steelblue", alpha=0.30,
+                               label="±1σ prediction")
+            ax_ra.axhline(0, color="grey", ls="-", lw=0.8)
+            ax_ra.scatter(x_cal, residuals, c="steelblue", s=40,
+                          edgecolors="k", linewidths=0.5, zorder=5)
+            ax_ra.set_xlabel("X")
+            ax_ra.set_ylabel("Residual  (Y − Ŷ)")
+            ax_ra.set_title("Residuals vs X  (with prediction interval)")
+            ax_ra.legend(fontsize=7, loc="best")
+            fig_ra.tight_layout()
+            st.pyplot(fig_ra)
+            plt.close(fig_ra)
 
         with col_res2:
-            fig_rvx, ax_rvx = plt.subplots(figsize=(5, 3.5))
-            ax_rvx.scatter(x_cal, residuals, c="steelblue", s=40,
-                           edgecolors="k", linewidths=0.5)
-            ax_rvx.axhline(0, color="red", ls="--", lw=1)
-            ax_rvx.set_xlabel("X")
-            ax_rvx.set_ylabel("Residuals (Y − Ŷ)")
-            ax_rvx.set_title("Residuals vs X")
-            fig_rvx.tight_layout()
-            st.pyplot(fig_rvx)
-            plt.close(fig_rvx)
+            fig_rb, ax_rb = plt.subplots(figsize=(5, 3.5))
+            ax_rb.scatter(x_cal, std_residuals, c="steelblue", s=40,
+                          edgecolors="k", linewidths=0.5, zorder=5)
+            ax_rb.axhline(0, color="grey", ls="-", lw=0.8)
+            ax_rb.axhline(-2, color="red", ls="--", lw=0.7, alpha=0.6)
+            ax_rb.axhline(2, color="red", ls="--", lw=0.7, alpha=0.6)
+            ax_rb.set_xlabel("X")
+            ax_rb.set_ylabel("Standardised residual")
+            ax_rb.set_title("Standardised residuals vs X")
+            fig_rb.tight_layout()
+            st.pyplot(fig_rb)
+            plt.close(fig_rb)
 
-        # -- Statistical tests ---------------------------------------------
-        st.markdown("**Statistical tests for residual structure:**")
-
+        # -- Breusch–Pagan test on the STANDARDISED residuals --------------
+        #    (tests whether the variance model has successfully removed
+        #     heteroscedasticity)
         from statsmodels.stats.diagnostic import het_breuschpagan
-        from scipy.stats import norm as _norm
         import statsmodels.api as sm
 
-        exog_bp = sm.add_constant(y_pred)
-        bp_lm, bp_lm_p, bp_f, bp_f_p = het_breuschpagan(residuals, exog_bp)
+        exog_bp = sm.add_constant(x_cal)
+        bp_lm, bp_lm_p, bp_f, bp_f_p = het_breuschpagan(
+            std_residuals, exog_bp)
 
-        def _wald_wolfowitz_runs_test(residuals_arr):
-            signs = np.array(residuals_arr) > 0
-            n_pos = int(signs.sum())
-            n_neg = int((~signs).sum())
-            n = n_pos + n_neg
-            if n_pos == 0 or n_neg == 0 or n < 3:
-                return np.nan, np.nan
-            runs = 1 + int(np.sum(signs[1:] != signs[:-1]))
-            e_runs = 1.0 + (2.0 * n_pos * n_neg) / n
-            var_runs = (2.0 * n_pos * n_neg * (2.0 * n_pos * n_neg - n)) / (
-                n**2 * (n - 1.0))
-            if var_runs <= 0:
-                return np.nan, np.nan
-            z = (runs - e_runs) / np.sqrt(var_runs)
-            p_value = 2.0 * _norm.sf(np.abs(z))
-            return z, p_value
-
-        runs_stat, runs_p = _wald_wolfowitz_runs_test(residuals)
-
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            st.markdown("##### Breusch–Pagan test (heteroscedasticity)")
-            st.markdown(
-                f"- LM statistic: **{bp_lm:.4f}**\n"
-                f"- *p*-value: **{bp_lm_p:.4f}**"
+        st.markdown("##### Breusch–Pagan test on standardised residuals")
+        st.markdown(
+            "This tests whether the **standardised** residuals "
+            "(after dividing by the model-predicted noise) still show "
+            "systematic changes in spread across X. If the variance "
+            "model is adequate, the standardised residuals should have "
+            "roughly constant variance."
+        )
+        st.markdown(
+            f"- LM statistic: **{bp_lm:.4f}**\n"
+            f"- *p*-value: **{bp_lm_p:.4f}**"
+        )
+        if bp_lm_p < 0.05:
+            st.warning(
+                "⚠️ Significant heteroscedasticity remains in the "
+                "standardised residuals (*p* < 0.05). The current "
+                "variance model may not fully capture how the noise "
+                "changes with X. Consider a different variance equation, "
+                "or try a variance-stabilising transform (e.g. log Y)."
             )
-            if bp_lm_p < 0.05:
-                st.warning(
-                    "⚠️ Significant heteroscedasticity detected (*p* < 0.05). "
-                    "The variance of the residuals is not constant across "
-                    "fitted values."
-                )
-            else:
-                st.success(
-                    "✅ No significant heteroscedasticity (*p* ≥ 0.05)."
-                )
-
-        with col_t2:
-            st.markdown("##### Wald–Wolfowitz runs test (randomness)")
-            st.markdown(
-                f"- Test statistic: **{runs_stat:.4f}**\n"
-                f"- *p*-value: **{runs_p:.4f}**"
+        else:
+            st.success(
+                "✅ No significant heteroscedasticity in the "
+                "standardised residuals (*p* ≥ 0.05). The variance "
+                "model appears adequate."
             )
-            if runs_p < 0.05:
-                st.warning(
-                    "⚠️ Significant non-randomness in residuals (*p* < 0.05). "
-                    "There may be systematic structure the model does not "
-                    "capture."
-                )
-            else:
-                st.success("✅ Residuals appear random (*p* ≥ 0.05).")
 
         # -- Guided diagnostic questions -----------------------------------
         st.markdown("---")
