@@ -1,6 +1,5 @@
 """
-
-.py
+equation_engine.py
 ==================
 SymPy-powered symbolic equation parser for Bayesian calibration.
 
@@ -199,13 +198,51 @@ class EquationModel:
         return result
 
     # ---- PyMC model builder ----------------------------------------------
-    def build_pymc_model(self, x_cal, y_cal):
+    def build_pymc_model(
+        self,
+        x_cal,
+        y_cal,
+        prior_config: Optional[Dict] = None,
+        log_scale_params: Optional[List[str]] = None,
+        variance_model: str = "constant",
+    ):
         """Build and return a PyMC model for this equation.
 
-        Parameters get Normal(0, 10) priors; sigma gets HalfNormal(10).
+        Parameters
+        ----------
+        x_cal, y_cal : array-like
+            Calibration data.
+        prior_config : dict, optional
+            Per-parameter prior configuration.  Keys are parameter names
+            (including 'sigma' and optionally 'alpha').  Each value is a dict
+            with keys 'dist' ('Normal', 'HalfNormal', 'Uniform', 'LogNormal'),
+            and distribution-specific keyword arguments (e.g. mu, sigma, lower,
+            upper).  If a parameter is absent, sensible defaults are used.
+        log_scale_params : list[str], optional
+            Parameter names that should be modelled on the log scale
+            (i.e. the prior is placed on log(param) and the actual value
+            used in the forward model is exp(log_param)).  This enforces
+            positivity.
+        variance_model : str
+            One of:
+            - ``"constant"`` — homoscedastic, Var(y_i) = σ².
+            - ``"proportional"`` — constant-CV, Var(y_i) = μ_i² · σ².
+            - ``"gelman2004"`` — Gelman, Chew & Shnaidman (2004):
+              Var(y_i) = (μ_i / A)^{2α} · σ²  with learnable α.
         """
         import pymc as pm
         import pytensor.tensor as pt
+
+        if prior_config is None:
+            prior_config = {}
+        if log_scale_params is None:
+            log_scale_params = []
+
+        _valid_vm = {"constant", "proportional", "gelman2004"}
+        if variance_model not in _valid_vm:
+            raise ValueError(
+                f"variance_model must be one of {_valid_vm}, got {variance_model!r}"
+            )
 
         # Build a pytensor-compatible forward function from SymPy
         pt_mapping = {
@@ -225,16 +262,67 @@ class EquationModel:
 
             param_vars = {}
             for p_name in self.param_names:
-                param_vars[p_name] = pm.Normal(p_name, mu=0, sigma=10)
+                cfg = prior_config.get(p_name, {})
+                if p_name in log_scale_params:
+                    # Prior is on log(param); actual param = exp(log_param)
+                    log_cfg = cfg if cfg else {"dist": "Normal", "mu": 0, "sigma": 10}
+                    log_var = _make_prior(f"log_{p_name}", log_cfg, pm)
+                    param_vars[p_name] = pm.Deterministic(p_name, pt.exp(log_var))
+                else:
+                    if not cfg:
+                        cfg = {"dist": "Normal", "mu": 0, "sigma": 10}
+                    param_vars[p_name] = _make_prior(p_name, cfg, pm)
 
-            sigma = pm.HalfNormal("sigma", sigma=10)
+            # Noise scale σ_y
+            sigma_cfg = prior_config.get("sigma", {"dist": "HalfNormal", "sigma": 10})
+            sigma = _make_prior("sigma", sigma_cfg, pm)
 
+            # Forward model mean
             args = [x_data] + [param_vars[p] for p in self.param_names]
             mu = pm.Deterministic("mu", pt_forward(*args))
 
-            pm.Normal("y_obs", mu=mu, sigma=sigma, observed=y_cal)
+            if variance_model == "constant":
+                pm.Normal("y_obs", mu=mu, sigma=sigma, observed=y_cal)
+
+            elif variance_model == "proportional":
+                # Constant-CV model: sd_i = |μ_i| · σ_y
+                sd = pt.abs(mu) * sigma
+                sd = pt.maximum(sd, 1e-8)
+                pm.Normal("y_obs", mu=mu, sigma=sd, observed=y_cal)
+
+            elif variance_model == "gelman2004":
+                # Gelman et al. (2004) variance model:
+                #   Var(y_i) = (μ_i / A)^(2α) · σ_y²
+                # A = geometric mean of observed y (constant)
+                A = float(np.exp(np.mean(np.log(np.maximum(y_cal, 1e-12)))))
+                alpha_cfg = prior_config.get(
+                    "alpha", {"dist": "Uniform", "lower": 0.0, "upper": 2.0}
+                )
+                alpha = _make_prior("alpha", alpha_cfg, pm)
+                # sd_i = |μ_i / A|^α · σ_y   (use abs to handle edge cases)
+                sd = pt.abs(mu / A) ** alpha * sigma
+                sd = pt.maximum(sd, 1e-8)
+                pm.Normal("y_obs", mu=mu, sigma=sd, observed=y_cal)
 
         return model
 
     def __repr__(self):
         return f"EquationModel('{self.equation_str}')  params={self.param_names}"
+
+
+def _make_prior(name: str, cfg: Dict, pm_module):
+    """Create a PyMC prior random variable from a config dict.
+
+    Supported distributions: Normal, HalfNormal, Uniform, LogNormal.
+    """
+    dist = cfg.get("dist", "Normal")
+    if dist == "Normal":
+        return pm_module.Normal(name, mu=cfg.get("mu", 0), sigma=cfg.get("sigma", 10))
+    elif dist == "HalfNormal":
+        return pm_module.HalfNormal(name, sigma=cfg.get("sigma", 10))
+    elif dist == "Uniform":
+        return pm_module.Uniform(name, lower=cfg.get("lower", 0), upper=cfg.get("upper", 1))
+    elif dist == "LogNormal":
+        return pm_module.Lognormal(name, mu=cfg.get("mu", 0), sigma=cfg.get("sigma", 1))
+    else:
+        raise ValueError(f"Unsupported prior distribution: {dist}")

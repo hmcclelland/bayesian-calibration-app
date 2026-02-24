@@ -103,7 +103,9 @@ application.
     $\ycal = (y_1,\dots,y_n)^\top$ & Calibration $y$-values \\
     $f(x;\,\thetab)$ & User-specified calibration function \\
     $\thetab = (\theta_1,\dots,\theta_p)^\top$ & Model parameters \\
-    $\sigma$ & Noise standard deviation \\
+    $\sigma_y$ & Baseline noise standard deviation \\
+    $\alpha$ & Heteroscedasticity exponent ($\alpha=0$: constant variance) \\
+    $A$ & Scaling constant (geometric mean of calibration $y$-values) \\
     $y^{*}$ & New observed response \\
     $x^{*}$ & Unknown value to be estimated \\
     \bottomrule
@@ -127,16 +129,17 @@ $x$ and~$\thetab$.
 \end{assumption}
 
 \begin{assumption}[Gaussian noise]\label{ass:noise}
-Each observation is the true calibration value plus independent, identically
-distributed Gaussian noise:
+Each observation is the true calibration value plus independent Gaussian noise.
+In the simplest (homoscedastic) case the noise has constant variance:
 \begin{equation}\label{eq:obs-model}
     y_i \;=\; f(x_i;\,\thetab) \;+\; \varepsilon_i,
     \qquad
-    \varepsilon_i \;\stackrel{\mathrm{iid}}{\sim}\; \N(0,\,\sigma^2),
+    \varepsilon_i \;\sim\; \N(0,\,\sigma_y^2),
     \qquad i = 1,\dots,n.
 \end{equation}
 The noise terms are mutually independent and independent of the standard
-values~$x_i$.
+values~$x_i$.  An extension to non-constant variance is described in
+\Cref{sec:hetero}.
 \end{assumption}
 
 \begin{assumption}[Differentiability]\label{ass:diff}
@@ -149,49 +152,139 @@ differentiation, and is required by the gradient-based NUTS sampler
 \noindent
 Under these assumptions the \textbf{likelihood} is
 \begin{equation}\label{eq:likelihood}
-    p(\ycal \mid \xcal,\,\thetab,\,\sigma)
+    p(\ycal \mid \xcal,\,\thetab,\,\sigma_y)
     \;=\; \prod_{i=1}^{n}
-        \frac{1}{\sqrt{2\pi}\,\sigma}\,
+        \frac{1}{\sqrt{2\pi}\,\sigma_y}\,
         \exp\!\biggl[-\frac{\bigl(y_i - f(x_i;\,\thetab)\bigr)^{2}}
-                           {2\,\sigma^{2}}\biggr],
+                           {2\,\sigma_y^{2}}\biggr],
 \end{equation}
 or equivalently, writing
 $\bm{\mu} = \bigl(f(x_1;\thetab),\dots,f(x_n;\thetab)\bigr)^\top$,
 \begin{equation}
-    \ycal \mid \thetab,\,\sigma
+    \ycal \mid \thetab,\,\sigma_y
     \;\sim\;
-    \N\!\bigl(\bm{\mu},\;\sigma^{2}\,\mathbf{I}_{n}\bigr).
+    \N\!\bigl(\bm{\mu},\;\sigma_y^{2}\,\mathbf{I}_{n}\bigr).
 \end{equation}
+
+% =============================================================================
+\section{Heteroscedastic Variance Model}
+\label{sec:hetero}
+% =============================================================================
+
+In many assays---particularly immunoassays and serial dilution experiments---the
+measurement variance is not constant but increases with the signal level.
+Following \citet{gelman2004}, the application offers an optional
+heteroscedastic variance model that replaces the constant-variance assumption
+(\Cref{ass:noise}) with a power-law relationship between the variance and the
+predicted mean.
+
+\subsection{Variance Model}
+
+Let $\mu_i = f(x_i;\,\thetab)$ denote the predicted mean response at
+observation~$i$.  The heteroscedastic model is
+\begin{equation}\label{eq:hetero}
+    \boxed{\;
+    y_i \;\sim\; \N\!\biggl[\,\mu_i,\;\;
+        \left(\frac{\mu_i}{A}\right)^{\!2\alpha}\!\sigma_y^{2}\;\biggr],
+    \qquad i = 1,\dots,n,
+    \;}
+\end{equation}
+where:
+\begin{itemize}[nosep]
+    \item $A$ is a scaling constant set to the geometric mean of the observed
+          calibration responses,
+          $A = \exp\!\bigl(\tfrac{1}{n}\sum_{i=1}^{n}\log y_i\bigr)$.
+          Its role is to make $\sigma_y$ interpretable as the noise standard
+          deviation at a ``typical'' measurement level.
+    \item $\alpha \ge 0$ controls how variance scales with the mean:
+    \begin{itemize}[nosep]
+        \item $\alpha = 0$: constant variance (reduces to the homoscedastic
+              model).
+        \item $\alpha = 1$: variance proportional to~$\mu_i^{2}$, i.e.\
+              approximately constant coefficient of variation (CV).
+        \item $\alpha \in (0,2)$: intermediate and super-proportional
+              variance structures.
+    \end{itemize}
+\end{itemize}
+
+\noindent
+The observation-specific standard deviation is therefore
+\begin{equation}\label{eq:sd-hetero}
+    \sigma_i \;=\; \left|\frac{\mu_i}{A}\right|^{\!\alpha}\,\sigma_y\,,
+\end{equation}
+and the heteroscedastic likelihood becomes
+\begin{equation}\label{eq:lik-hetero}
+    p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\alpha)
+    \;=\; \prod_{i=1}^{n}
+        \frac{1}{\sqrt{2\pi}\,\sigma_i}\,
+        \exp\!\biggl[-\frac{(y_i - \mu_i)^{2}}{2\,\sigma_i^{2}}\biggr].
+\end{equation}
+
+\subsection{Prior on \texorpdfstring{$\alpha$}{alpha}}
+
+We assign $\alpha$ a uniform prior on $[0,2]$:
+\begin{equation}\label{eq:prior-alpha}
+    \alpha \;\sim\; \mathrm{Uniform}(0,\,2).
+\end{equation}
+This range is centred at proportionality ($\alpha=1$) and is wide enough to
+accommodate the constant-variance special case ($\alpha\approx 0$) as well as
+super-proportional variance.  The data determine the posterior for~$\alpha$;
+when constant variance is adequate, the posterior will concentrate near zero.
 
 % =============================================================================
 \section{Prior Distributions}
 \label{sec:priors}
 % =============================================================================
 
-We place weakly informative, independent priors on all parameters:
+The application allows the user to choose prior distributions for all
+parameters through the Advanced Options panel.  The defaults are weakly
+informative, independent priors:
 \begin{align}
     \theta_j &\sim \N(0,\,10^{2}),
         &&j = 1,\dots,p, \label{eq:prior-theta} \\[4pt]
-    \sigma &\sim \HN(10),
+    \sigma_y &\sim \HN(10),
         \label{eq:prior-sigma}
 \end{align}
 where $\HN(\tau)$ denotes the half-normal distribution with scale~$\tau$,
 i.e.\ a $\N(0,\tau^{2})$ truncated to the positive reals.
 
+\paragraph{Supported prior families.}
+For each parameter the user may select from:
+Normal, Half-Normal, Uniform, or Log-Normal distributions, each with
+user-specified hyperparameters.
+
+\subsection{Log-Scale Parameterisation}
+\label{sec:log-scale}
+
+For parameters that must be positive (e.g.\ rate constants, asymptotes), the
+user may opt to model the parameter on the log scale.  For a parameter
+$\theta_j > 0$ this means:
+\begin{equation}
+    \log\theta_j \;\sim\; \pi(\cdot), \qquad
+    \theta_j \;=\; \exp(\log\theta_j),
+\end{equation}
+where $\pi(\cdot)$ is the chosen prior placed on the unconstrained
+$\log\theta_j$.  This enforces positivity without requiring bounded priors and
+improves sampling geometry for parameters that span several orders of
+magnitude.
+
 \paragraph{Rationale.}
 The zero-centred normal priors on each~$\theta_j$ are deliberately vague
-(standard deviation~10).  The half-normal prior on~$\sigma$ enforces positivity
-while remaining uninformative over the plausible range of noise magnitudes.
-These defaults perform well across a broad class of calibration problems.  Users
-with strong domain knowledge may substitute tighter priors in the source code.
+(standard deviation~10).  The half-normal prior on~$\sigma_y$ enforces
+positivity while remaining uninformative over the plausible range of noise
+magnitudes.  These defaults perform well across a broad class of calibration
+problems.  Users with strong domain knowledge should substitute tighter priors
+via the Advanced Options panel.
 
 \paragraph{Joint prior.}
 Because the priors are independent,
 \begin{equation}\label{eq:joint-prior}
-    p(\thetab,\,\sigma)
+    p(\thetab,\,\sigma_y,\,\alpha)
     \;=\;
-    \biggl[\prod_{j=1}^{p} p(\theta_j)\biggr]\;p(\sigma).
+    \biggl[\prod_{j=1}^{p} p(\theta_j)\biggr]\;p(\sigma_y)\;p(\alpha).
 \end{equation}
+(When the homoscedastic model is used, the $p(\alpha)$ factor is absent and
+$\alpha$ is not part of the model.)
 
 % =============================================================================
 \section{Posterior Distribution}
@@ -201,10 +294,10 @@ Because the priors are independent,
 Applying Bayes' theorem:
 \begin{equation}\label{eq:bayes}
     \boxed{\;
-    p(\thetab,\,\sigma \mid \ycal,\,\xcal)
+    p(\thetab,\,\sigma_y,\,\alpha \mid \ycal,\,\xcal)
     \;=\;
-    \frac{p(\ycal \mid \xcal,\,\thetab,\,\sigma)\;\;
-          p(\thetab,\,\sigma)}
+    \frac{p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\alpha)\;\;
+          p(\thetab,\,\sigma_y,\,\alpha)}
          {p(\ycal \mid \xcal)}
     \;}
 \end{equation}
@@ -212,13 +305,14 @@ where the marginal likelihood (evidence) is
 \begin{equation}
     p(\ycal \mid \xcal)
     \;=\;
-    \int p(\ycal \mid \xcal,\,\thetab,\,\sigma)\;
-         p(\thetab,\,\sigma)
-    \;\mathrm{d}\thetab\;\mathrm{d}\sigma.
+    \int p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\alpha)\;
+         p(\thetab,\,\sigma_y,\,\alpha)
+    \;\mathrm{d}\thetab\;\mathrm{d}\sigma_y\;\mathrm{d}\alpha.
 \end{equation}
 For most nonlinear calibration functions this integral is analytically
 intractable, so we approximate the posterior using Markov chain Monte Carlo
-sampling.
+sampling.  (When the homoscedastic model is used, $\alpha$ is absent from
+all expressions.)
 
 % =============================================================================
 \section{MCMC Sampling via NUTS}
@@ -310,12 +404,25 @@ ${\sim}\,0.8$.
 
 Given a new instrument reading $y^{*}$, we want the posterior predictive
 distribution of the unknown value $x^{*}$ that produced it.  We assume the new
-observation arises from the same process as the calibration data:
+observation arises from the same process as the calibration data.
+
+\paragraph{Homoscedastic case.}
 \begin{equation}\label{eq:new-obs}
     y^{*} \;=\; f(x^{*};\,\thetab) \;+\; \varepsilon^{*},
     \qquad
-    \varepsilon^{*} \sim \N(0,\,\sigma^{2}).
+    \varepsilon^{*} \sim \N(0,\,\sigma_y^{2}).
 \end{equation}
+
+\paragraph{Heteroscedastic case.}
+The noise standard deviation at the new point depends on the predicted mean
+$\mu^{*} = f(x^{*};\,\thetab)$, which is unknown.  We approximate it by using
+the observed value~$y^{*}$ as a plug-in for~$\mu^{*}$:
+\begin{equation}\label{eq:new-obs-hetero}
+    \varepsilon^{*} \;\sim\; \N\!\Bigl(0,\;\;
+        \bigl|y^{*}/A\bigr|^{2\alpha}\,\sigma_y^{2}\Bigr).
+\end{equation}
+This approximation is accurate when $y^{*}$ is close to~$\mu^{*}$ (i.e.\ when
+the signal-to-noise ratio is moderate to high).
 
 \subsection{Posterior Predictive Distribution of \texorpdfstring{$x^{*}$}{x*}}
 
@@ -324,20 +431,25 @@ The target distribution is obtained by marginalising over the posterior:
     \boxed{\;
     p(x^{*} \mid y^{*},\,\ycal,\,\xcal)
     \;=\;
-    \int p(x^{*} \mid y^{*},\,\thetab,\,\sigma)\;\;
-         p(\thetab,\,\sigma \mid \ycal,\,\xcal)
-    \;\mathrm{d}\thetab\;\mathrm{d}\sigma
+    \int p(x^{*} \mid y^{*},\,\thetab,\,\sigma_y,\,\alpha)\;\;
+         p(\thetab,\,\sigma_y,\,\alpha \mid \ycal,\,\xcal)
+    \;\mathrm{d}\thetab\;\mathrm{d}\sigma_y\;\mathrm{d}\alpha
     \;}
 \end{equation}
 This integral propagates \emph{both} parameter uncertainty and measurement
 noise into the prediction.  We evaluate it by Monte Carlo:
 
 \begin{proposition}[Monte Carlo inverse prediction]\label{prop:mc}
-For each posterior draw $(\thetab^{(s)},\,\sigma^{(s)})$, $s=1,\dots,N$:
+For each posterior draw $(\thetab^{(s)},\,\sigma_y^{(s)},\,\alpha^{(s)})$,
+$s=1,\dots,N$:
 \begin{enumerate}[nosep]
+    \item \textbf{Compute noise scale:}\;
+          $\sigma^{*(s)} = \bigl|y^{*}/A\bigr|^{\alpha^{(s)}}\,\sigma_y^{(s)}$
+          \;\;(or simply $\sigma^{*(s)} = \sigma_y^{(s)}$ in the homoscedastic
+          case).
     \item \textbf{Add noise:}\;
           $\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$\;
-          where\; $\epsilon^{(s)} \sim \N(0,\,\sigma^{(s)2})$.
+          where\; $\epsilon^{(s)} \sim \N(0,\,\sigma^{*(s)2})$.
     \item \textbf{Invert:}\;
           $x^{*(s)} = f^{-1}\!\bigl(\tilde{y}^{(s)};\,\thetab^{(s)}\bigr)$.
 \end{enumerate}
@@ -346,15 +458,15 @@ $p(x^{*} \mid y^{*},\,\ycal,\,\xcal)$.
 \end{proposition}
 
 \begin{proof}
-For fixed $(\thetab,\sigma)$ the forward model is deterministic, so
+For fixed $(\thetab,\sigma_y,\alpha)$ the forward model is deterministic, so
 $x^{*} = f^{-1}(y^{*} - \varepsilon^{*};\,\thetab)$ with
-$\varepsilon^{*}\sim\N(0,\sigma^{2})$.  Drawing
+$\varepsilon^{*}\sim\N(0,\sigma^{*2})$.  Drawing
 $\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$ where
-$\epsilon^{(s)}\sim\N(0,\sigma^{(s)2})$ is equivalent to sampling the
+$\epsilon^{(s)}\sim\N(0,\sigma^{*(s)2})$ is equivalent to sampling the
 noise-free response from the predictive distribution at draw~$s$.
-Since the draws $(\thetab^{(s)},\sigma^{(s)})$ come from the posterior
-$p(\thetab,\sigma\mid\ycal,\xcal)$, the composition produces samples from the
-marginal~\eqref{eq:ppd}.
+Since the draws $(\thetab^{(s)},\sigma_y^{(s)},\alpha^{(s)})$ come from the
+posterior $p(\thetab,\sigma_y,\alpha\mid\ycal,\xcal)$, the composition produces
+samples from the marginal~\eqref{eq:ppd}.
 \end{proof}
 
 \subsection{Inversion Methods}
@@ -456,8 +568,11 @@ Based on the diagnostics the application presents the following advice:
 \begin{itemize}[nosep]
     \item \textbf{Curved / trending residuals:} try a different model (e.g.\
           add a polynomial term, switch to an exponential or power law).
-    \item \textbf{Fan-shaped spread:} try a variance-stabilising
-          transformation such as $\log(y)$ or $\sqrt{y}$ before fitting.
+    \item \textbf{Fan-shaped spread:} enable the \textbf{heteroscedastic
+          variance model} in Advanced Options, which lets the model learn how
+          noise scales with the mean response.  Alternatively, try a
+          variance-stabilising transformation such as $\log(y)$ or $\sqrt{y}$
+          before fitting.
     \item \textbf{Isolated outliers:} check for data-entry errors; consider
           excluding the suspect point and re-fitting.
     \item \textbf{Random scatter around zero:} the model assumptions appear
@@ -473,14 +588,16 @@ Based on the diagnostics the application presents the following advice:
     \item The user-specified function $f(x;\thetab)$ adequately describes the
           calibration relationship
           (\Cref{ass:func}).
-    \item Observation noise is additive, Gaussian, and i.i.d.\ with constant
-          variance~$\sigma^{2}$
-          (\Cref{ass:noise}).
+    \item Observation noise is additive and Gaussian, with either constant
+          variance~$\sigma_y^{2}$ or signal-dependent variance
+          $(\mu_i/A)^{2\alpha}\sigma_y^{2}$
+          (\Cref{ass:noise}, \Cref{sec:hetero}).
     \item The log-posterior is differentiable with respect to all continuous
           parameters
           (\Cref{ass:diff}).
     \item Prior distributions are weakly informative and mutually independent
-          (\Cref{sec:priors}).
+          (user-configurable via Advanced Options;
+          \Cref{sec:priors}).
     \item New measurements follow the same generative process as the
           calibration data (no distribution shift).
 \end{enumerate}
@@ -490,8 +607,8 @@ Based on the diagnostics the application presents the following advice:
     \item \emph{Wrong functional form.}  The runs test will flag non-random
           residual patterns; try a different equation.
     \item \emph{Non-constant variance.}  The Breusch--Pagan test will flag
-          this; apply a variance-stabilising transform (e.g.\ $\log y$) and
-          re-fit.
+          this; enable the heteroscedastic variance model or apply a
+          variance-stabilising transform (e.g.\ $\log y$) and re-fit.
     \item \emph{Non-Gaussian noise.}  Heavy tails may cause credible intervals
           to undercover.  A Student-$t$ likelihood could be added in future.
     \item \emph{Correlated observations.}  If measurements are time-dependent,
@@ -520,7 +637,7 @@ Based on the diagnostics the application presents the following advice:
 
 % =============================================================================
 \bibliographystyle{plainnat}
-\begin{thebibliography}{9}
+\begin{thebibliography}{10}
 
 \bibitem[Breusch and Pagan(1979)]{breusch1979}
 T.~S. Breusch and A.~R. Pagan.
@@ -531,6 +648,11 @@ T.~S. Breusch and A.~R. Pagan.
 R.~P. Brent.
 \newblock \emph{Algorithms for Minimization without Derivatives}.
 \newblock Prentice-Hall, 1973.
+
+\bibitem[Gelman et~al.(2004)]{gelman2004}
+A.~Gelman, G.~L. Chew, and M.~Shnaidman.
+\newblock Bayesian analysis of serial dilution assays.
+\newblock \emph{Biometrics}, 60(2):407--417, 2004.
 
 \bibitem[Gelman et~al.(2013)]{gelman2013}
 A.~Gelman, J.~B. Carlin, H.~S. Stern, D.~B. Dunson, A.~Vehtari, and
