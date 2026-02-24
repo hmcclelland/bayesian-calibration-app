@@ -369,6 +369,9 @@ class EquationModel:
         prior_config : dict, optional
             Per-parameter prior configuration.  Keys are parameter names
             (including 'sigma' and any variance-model parameters).
+            For log-scale parameters, the config should describe the prior
+            in the **original** (natural) parameter space — it will be
+            automatically converted to log-space internally.
         log_scale_params : list[str], optional
             Parameter names modelled on the log scale.
         variance_model : str
@@ -376,6 +379,13 @@ class EquationModel:
             ``"custom"``.
         variance_eq : VarianceModel, optional
             Required when *variance_model* is ``"custom"``.
+
+        Returns
+        -------
+        tuple[pm.Model, dict | None]
+            The PyMC model and an optional dict of initial values (keyed by
+            user-facing parameter names) that should be passed to
+            ``pm.sample(initvals=...)``.
         """
         import pymc as pm
         import pytensor.tensor as pt
@@ -397,7 +407,7 @@ class EquationModel:
             )
 
         # ── Compute least-squares starting values for initialisation ──────
-        initvals = self._estimate_initvals(x_cal, y_cal)
+        ls_initvals = self._estimate_initvals(x_cal, y_cal)
 
         # Build a pytensor-compatible forward function from SymPy
         pt_mapping = {
@@ -412,6 +422,9 @@ class EquationModel:
             modules=[pt_mapping, "numpy"],
         )
 
+        # ── Prepare initvals dict (user-facing names only) ────────────────
+        sample_initvals: Optional[Dict[str, float]] = None
+
         with pm.Model() as model:
             x_data = pm.Data("x_data", x_cal)
 
@@ -419,19 +432,55 @@ class EquationModel:
             for p_name in self.param_names:
                 cfg = prior_config.get(p_name, {})
                 if p_name in log_scale_params:
-                    log_cfg = cfg if cfg else {"dist": "Normal", "mu": 0, "sigma": 10}
+                    # Convert the prior config to log-space.
+                    # The user specifies priors in the ORIGINAL parameter
+                    # space; we need a prior on log(param).
+                    # Only Normal priors on the log-space are safe — any
+                    # positivity-constrained dist (HalfNormal, LogNormal,
+                    # Gamma, Exponential) would cause PyMC to add ANOTHER
+                    # internal log-transform on top of our manual exp(),
+                    # resulting in a double-transform → inf.
+                    log_cfg = self._convert_prior_to_log_space(cfg, p_name, ls_initvals)
                     log_var = _make_prior(f"log_{p_name}", log_cfg, pm)
                     param_vars[p_name] = pm.Deterministic(
                         p_name, pt.exp(log_var))
+
+                    # Set initval for log-scale param
+                    if ls_initvals and p_name in ls_initvals:
+                        val = ls_initvals[p_name]
+                        if val > 0:
+                            if sample_initvals is None:
+                                sample_initvals = {}
+                            sample_initvals[f"log_{p_name}"] = float(np.log(val))
                 else:
                     if not cfg:
                         cfg = {"dist": "Normal", "mu": 0, "sigma": 10}
                     param_vars[p_name] = _make_prior(p_name, cfg, pm)
 
+                    # Set initval for regular param
+                    if ls_initvals and p_name in ls_initvals:
+                        if sample_initvals is None:
+                            sample_initvals = {}
+                        sample_initvals[p_name] = float(ls_initvals[p_name])
+
             # Noise scale σ
             sigma_cfg = prior_config.get(
                 "sigma", {"dist": "HalfNormal", "sigma": 10})
             sigma = _make_prior("sigma", sigma_cfg, pm)
+
+            # Set initval for sigma from LS residuals
+            if ls_initvals:
+                try:
+                    ls_pred = self.forward_numpy(
+                        ls_initvals, np.asarray(x_cal, dtype=float))
+                    ls_resid_sd = float(
+                        np.std(np.asarray(y_cal, dtype=float) - ls_pred))
+                    if ls_resid_sd > 0:
+                        if sample_initvals is None:
+                            sample_initvals = {}
+                        sample_initvals["sigma"] = ls_resid_sd
+                except Exception:
+                    pass
 
             # Forward model mean
             args = [x_data] + [param_vars[p] for p in self.param_names]
@@ -481,26 +530,56 @@ class EquationModel:
                 sd = pt.maximum(pt.abs(sd), 1e-8)
                 pm.Normal("y_obs", mu=mu, sigma=sd, observed=y_cal)
 
-            # ── Set initial values from least-squares if available ────────
-            if initvals:
-                _iv = {}
-                for p_name, val in initvals.items():
-                    if p_name in log_scale_params:
-                        if val > 0:
-                            _iv[f"log_{p_name}"] = float(np.log(val))
-                    else:
-                        _iv[p_name] = float(val)
-                # sigma init: residual standard deviation from LS fit
-                try:
-                    ls_pred = self.forward_numpy(initvals, np.asarray(x_cal, dtype=float))
-                    ls_resid_sd = float(np.std(np.asarray(y_cal, dtype=float) - ls_pred))
-                    if ls_resid_sd > 0:
-                        _iv["sigma_log__"] = float(np.log(ls_resid_sd))
-                except Exception:
-                    pass
-                model.initial_point_for_sampler = _iv
+        return model, sample_initvals
 
-        return model
+    @staticmethod
+    def _convert_prior_to_log_space(
+        cfg: Dict, p_name: str, ls_initvals: Optional[Dict[str, float]]
+    ) -> Dict:
+        """Convert a prior config from original parameter space to log-space.
+
+        When the user enables log-scale for a parameter, the model uses:
+            log_p ~ Prior(...)
+            p = exp(log_p)
+
+        The prior on log_p MUST be an unbounded distribution (Normal or
+        Uniform with wide bounds). Using a positivity-constrained dist
+        (HalfNormal, LogNormal, Gamma, Exponential) on log_p would cause
+        PyMC to add an internal log-transform on top of our manual exp(),
+        leading to a double-transform and inf starting values.
+
+        This method:
+        1. Forces the distribution to Normal (safe, unbounded).
+        2. Converts mu/sigma from original space to log-space using the
+           delta method: if p ~ Normal(μ, σ), then log(p) ≈ Normal(log(μ), σ/μ).
+        3. Falls back to LS estimates or generic defaults if needed.
+        """
+        dist = cfg.get("dist", "Normal") if cfg else "Normal"
+
+        # If user explicitly chose Normal, convert its parameters to log-space
+        if dist == "Normal" and cfg:
+            mu_orig = cfg.get("mu", 0.0)
+            sigma_orig = cfg.get("sigma", 10.0)
+            if mu_orig > 0:
+                # Delta method: log(p) ≈ Normal(log(μ), σ/μ)
+                log_mu = float(np.log(mu_orig))
+                log_sigma = max(sigma_orig / mu_orig, 0.5)
+                return {"dist": "Normal",
+                        "mu": round(log_mu, 4),
+                        "sigma": round(log_sigma, 2)}
+
+        # For any positivity-constrained dist (HalfNormal, LogNormal,
+        # Gamma, Exponential), we CANNOT use it on log-space safely.
+        # Convert to a Normal in log-space using LS estimate as centre.
+        if ls_initvals and p_name in ls_initvals:
+            val = ls_initvals[p_name]
+            if val > 0:
+                return {"dist": "Normal",
+                        "mu": round(float(np.log(val)), 4),
+                        "sigma": 2.0}
+
+        # Ultimate fallback: vague Normal on log-space
+        return {"dist": "Normal", "mu": 0.0, "sigma": 3.0}
 
     def _estimate_initvals(
         self, x_cal, y_cal

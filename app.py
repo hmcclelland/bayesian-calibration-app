@@ -26,6 +26,12 @@ _DEFAULT_Y_NEW = "49.6\n43.8\n24.0\n24.1\n17.3\n17.6\n15.6\n17.1"
 _PRIOR_DISTS = ["Normal", "HalfNormal", "Uniform", "LogNormal",
                 "Exponential", "Gamma"]
 
+# Distributions safe to use on the log-scale (unbounded support).
+# Positivity-constrained dists (HalfNormal, LogNormal, Gamma, Exponential)
+# would cause PyMC to add an internal log-transform on top of the manual
+# exp(), leading to a double-transform and inf starting values.
+_LOG_SCALE_DISTS = ["Normal", "Uniform"]
+
 # ── Mean model presets ────────────────────────────────────────────────────────
 _MEAN_PRESETS = {
     "Custom": "y = b1 + b2 / (1 + (x / b3)**(-b4))",
@@ -343,14 +349,26 @@ else:
 
 
 def _prior_widget(label: str, key_prefix: str, default_dist: str = "Normal",
-                  default_params: Optional[Dict] = None):
-    """Render widgets for a single prior and return a config dict."""
+                  default_params: Optional[Dict] = None,
+                  allowed_dists: Optional[List[str]] = None):
+    """Render widgets for a single prior and return a config dict.
+
+    Parameters
+    ----------
+    allowed_dists : list[str], optional
+        If provided, only these distributions are shown in the dropdown.
+        Defaults to the full ``_PRIOR_DISTS`` list.
+    """
     if default_params is None:
         default_params = {}
-    dist = st.selectbox(f"Distribution", _PRIOR_DISTS,
-                        index=_PRIOR_DISTS.index(default_dist),
+    if allowed_dists is None:
+        allowed_dists = _PRIOR_DISTS
+    # Ensure the default dist is in the allowed list; fall back to first entry
+    if default_dist not in allowed_dists:
+        default_dist = allowed_dists[0]
+    dist = st.selectbox(f"Distribution", allowed_dists,
+                        index=allowed_dists.index(default_dist),
                         key=f"{key_prefix}_dist")
-    cfg = {"dist": dist}
     if dist == "Normal":
         c1, c2 = st.columns(2)
         with c1:
@@ -526,6 +544,7 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
             key_prefix=f"prior_{selected_param}",
             default_dist=_def_dist,
             default_params=_def_params,
+            allowed_dists=_LOG_SCALE_DISTS if use_log else None,
         )
 
         # Store configured prior in session state so it persists
@@ -612,7 +631,7 @@ else:
 
         with st.spinner("Building model..."):
             try:
-                model = eq_model.build_pymc_model(
+                model, sample_initvals = eq_model.build_pymc_model(
                     x_cal, y_cal,
                     prior_config=prior_config,
                     log_scale_params=log_scale_params,
@@ -633,6 +652,7 @@ else:
                         random_seed=int(seed),
                         progressbar=False,
                         return_inferencedata=True,
+                        initvals=sample_initvals,
                     )
             except Exception as exc:
                 st.error(f"\u274c MCMC sampling failed: {exc}")
