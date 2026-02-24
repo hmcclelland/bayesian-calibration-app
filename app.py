@@ -485,6 +485,12 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
     prior_config: Dict = {}
     log_scale_params: List[str] = []
 
+    # Persistent set for log-scale choices — survives when the checkbox
+    # widget for a different parameter is not rendered (Streamlit removes
+    # un-rendered widget keys from session state at end of each run).
+    if "_log_scale_set" not in st.session_state:
+        st.session_state["_log_scale_set"] = set()
+
     # Build the full list of parameters from both models
     _all_params: List[str] = []
     _param_sources: Dict[str, str] = {}
@@ -531,9 +537,15 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
         if selected_param != "sigma" and _param_sources.get(selected_param) == "mean model":
             use_log = st.checkbox(
                 "Model on log scale (enforces positivity)",
-                value=False,
+                value=selected_param in st.session_state["_log_scale_set"],
                 key=f"log_{selected_param}",
             )
+            # Sync the persistent set with the checkbox value
+            if use_log:
+                st.session_state["_log_scale_set"].add(selected_param)
+            else:
+                st.session_state["_log_scale_set"].discard(selected_param)
+
             if use_log:
                 log_scale_params.append(selected_param)
                 st.info(
@@ -598,11 +610,10 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
                     p, _param_sources.get(p, ""))
                 prior_config[p] = {"dist": _fd, **_fp}
 
-        # Collect log-scale params from session state
+        # Collect log-scale params from the persistent set (not widget keys)
         if eq_model is not None:
             for p in eq_model.param_names:
-                lk = f"log_{p}"
-                if st.session_state.get(lk, False) and p not in log_scale_params:
+                if p in st.session_state["_log_scale_set"] and p not in log_scale_params:
                     log_scale_params.append(p)
 
         # Show a summary table of all current priors
