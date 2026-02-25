@@ -199,7 +199,7 @@ with col_mean:
     # When a preset is chosen, pre-fill the equation; Custom is editable
     equation_input = st.text_input(
         "**Equation**",
-        placeholder="e.g.  y = a + b*x",
+        placeholder="Enter mean model equation here (e.g. y = a + b*x)",
         help="Type any equation of the form  y = f(x).  "
              "Letters other than x become parameters to estimate.",
         key="mean_eq_input",
@@ -304,19 +304,21 @@ def _clear_all():
     st.session_state["cal_y_text"] = ""
     st.session_state["new_y_text"] = ""
 
-_btn_col1, _btn_col2, _btn_col3 = st.columns(3)
-with _btn_col1:
-    st.button("Example 1 — linear data", on_click=_load_example1,
-              use_container_width=True,
-              help="Load synthetic linear calibration data (y = 10 + 5x + noise)")
-with _btn_col2:
-    st.button("Example 2 — Gelman 2004 ELISA", on_click=_load_example2,
-              use_container_width=True,
-              help="Load the cockroach allergen ELISA data from Gelman et al. (2004)")
-with _btn_col3:
-    st.button("Clear all / enter my own data", on_click=_clear_all,
-              use_container_width=True,
-              help="Reset all fields and start fresh")
+with st.container(border=True):
+    st.caption("Load an example or start fresh:")
+    _btn_col1, _btn_col2, _btn_col3 = st.columns(3)
+    with _btn_col1:
+        st.button("Example 1 — linear data", on_click=_load_example1,
+                  use_container_width=True,
+                  help="Load synthetic linear calibration data (y = 10 + 5x + noise)")
+    with _btn_col2:
+        st.button("Example 2 — Gelman 2004 ELISA", on_click=_load_example2,
+                  use_container_width=True,
+                  help="Load the cockroach allergen ELISA data from Gelman et al. (2004)")
+    with _btn_col3:
+        st.button("Clear all / enter my own data", on_click=_clear_all,
+                  use_container_width=True,
+                  help="Reset all fields and start fresh")
 
 st.header("Calibration Data")
 st.markdown("Provide paired **(X, Y)** calibration measurements.")
@@ -347,15 +349,17 @@ else:
     st.markdown("Enter X and Y values (one per line, same length):")
     col1, col2 = st.columns(2)
     with col1:
-        x_text = st.text_area("X values", height=200, key="cal_x_text")
+        x_text = st.text_area("X values", height=200, key="cal_x_text",
+                              placeholder="Enter x calibration data here\n(one value per line)")
     with col2:
-        y_text = st.text_area("Y values", height=200, key="cal_y_text")
+        y_text = st.text_area("Y values", height=200, key="cal_y_text",
+                              placeholder="Enter y calibration data here\n(one value per line)")
     try:
         x_vals = [float(v) for v in x_text.strip().split("\n") if v.strip()]
         y_vals = [float(v) for v in y_text.strip().split("\n") if v.strip()]
         if len(x_vals) == len(y_vals) and len(x_vals) >= 2:
             cal_df = pd.DataFrame({"X": x_vals, "Y": y_vals})
-        else:
+        elif len(x_vals) > 0 or len(y_vals) > 0:
             st.warning("X and Y must have the same number of values (≥ 2).")
     except ValueError:
         st.error("Could not parse values — make sure each line is a number.")
@@ -414,6 +418,7 @@ else:
         "Y values (one per line)",
         height=150,
         key="new_y_text",
+        placeholder="Enter new y values here\n(one per line)",
     )
     try:
         y_new_vals = np.array(
@@ -921,7 +926,8 @@ else:
                     np.full_like(mu_j, sigma_draws_arr[idx]),
                     {k: np.full_like(mu_j, v) for k, v in vp_j.items()},
                     prescribed_params=prescribed_values,
-                    x=x_grid_res,
+                    **({'x': x_grid_res}
+                       if getattr(stored_var_model, 'uses_x', False) else {}),
                 )
             else:
                 sd_j = np.full_like(mu_j, sigma_draws_arr[idx])
@@ -954,7 +960,8 @@ else:
                 {k: np.full_like(y_pred, v)
                  for k, v in median_var_params.items()},
                 prescribed_params=prescribed_values,
-                x=x_cal,
+                **({'x': x_cal}
+                   if getattr(stored_var_model, 'uses_x', False) else {}),
             )
         else:
             sd_at_cal = np.full_like(y_pred, median_sigma)
@@ -1170,12 +1177,11 @@ else:
                 # Use the custom variance model to compute per-draw noise sd
                 if stored_var_model is not None:
                     mu_proxy = np.full(n_draws, y_val)
-                    x_proxy = (np.full(n_draws, float(np.median(x_cal)))
-                               if stored_var_model.uses_x else None)
                     sd_i = stored_var_model.sd_numpy(
                         mu_proxy, sigma_draws, var_param_draws,
                         prescribed_params=prescribed_values,
-                        x=x_proxy,
+                        **({'x': np.full(n_draws, float(np.median(x_cal)))}
+                           if getattr(stored_var_model, 'uses_x', False) else {}),
                     )
                     sd_i = np.maximum(sd_i, 1e-12)
                 else:
