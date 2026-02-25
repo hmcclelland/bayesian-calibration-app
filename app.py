@@ -19,6 +19,32 @@ except ImportError:
 
 ALLOW_UPLOAD = (MODE == "local")
 
+# ── Patch Streamlit's index.html to inject GA into the real page <head> ──────
+# st.components.v1.html runs in a sandboxed iframe and is not detected by
+# GA Tag Assistant. Patching index.html places the tag directly in the page.
+if GA_TRACKING_ID:
+    _GA_SNIPPET = (
+        f'<script async '
+        f'src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}">'
+        f'</script>'
+        f'<script>'
+        f'window.dataLayer=window.dataLayer||[];'
+        f'function gtag(){{dataLayer.push(arguments);}}'
+        f"gtag('consent','default',{{"
+        f"'analytics_storage':'denied','ad_storage':'denied'}});"
+        f"gtag('js',new Date());"
+        f"gtag('config','{GA_TRACKING_ID}');"
+        f'</script>'
+    )
+    try:
+        _idx = pathlib.Path(st.__file__).parent / "static" / "index.html"
+        _html = _idx.read_text(encoding="utf-8")
+        if GA_TRACKING_ID not in _html:
+            _html = _html.replace("</head>", _GA_SNIPPET + "</head>", 1)
+            _idx.write_text(_html, encoding="utf-8")
+    except Exception:
+        pass  # silently skip if no write access
+
 # ── Default data from Gelman, Chew & Shnaidman (2004) ────────────────────────
 # Standards from Table 2: cockroach allergen Bla g1 ELISA plate
 _DEFAULT_X = "0.64\n0.64\n0.32\n0.32\n0.16\n0.16\n0.08\n0.08\n0.04\n0.04\n0.02\n0.02\n0.01\n0.01\n0.001\n0.001"
@@ -82,10 +108,9 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Google Analytics — Consent Mode v2
-# The tag is ALWAYS injected (so Tag Assistant detects it on every load),
-# but analytics_storage starts as "denied" until the user accepts.
-# Disable everything by setting GA_TRACKING_ID = "" in app_config.py.
+# Google Analytics consent banner + consent-mode update
+# GA tag is already in the page <head> (patched into Streamlit's index.html).
+# Here we show the banner and update gtag consent when the user decides.
 # ══════════════════════════════════════════════════════════════════════════════
 if GA_TRACKING_ID:
     import streamlit.components.v1 as _components
@@ -94,39 +119,20 @@ if GA_TRACKING_ID:
         st.session_state["ga_consent"] = None  # None = undecided
 
     _consent_state = st.session_state["ga_consent"]
-    _consent_js = "true" if _consent_state is True else "false"
 
-    # Always inject GA with Consent Mode — Tag Assistant sees it immediately.
-    # On rerun after Accept, the script updates analytics_storage to granted.
-    _components.html(
-        f"""
-        <script>
-        (function() {{
-            var p = window.parent;
-            var granted = {_consent_js};
-            if (!p._gaLoaded) {{
-                p._gaLoaded = true;
-                p.dataLayer = p.dataLayer || [];
-                p.gtag = function() {{ p.dataLayer.push(arguments); }};
-                p.gtag('consent', 'default', {{
-                    'analytics_storage': granted ? 'granted' : 'denied',
-                    'ad_storage': 'denied'
-                }});
-                var s = p.document.createElement('script');
-                s.async = true;
-                s.src = 'https://www.googletagmanager.com/gtag/js'
-                        + '?id={GA_TRACKING_ID}';
-                p.document.head.appendChild(s);
-                p.gtag('js', new Date());
-                p.gtag('config', '{GA_TRACKING_ID}');
-            }} else if (granted) {{
-                p.gtag('consent', 'update', {{'analytics_storage': 'granted'}});
-            }}
-        }})();
-        </script>
-        """,
-        height=0,
-    )
+    # When consent is granted, update GA (gtag is in the real page head now)
+    if _consent_state is True:
+        _components.html(
+            """
+            <script>
+            if (typeof window.parent.gtag === 'function') {
+                window.parent.gtag('consent', 'update',
+                    {'analytics_storage': 'granted'});
+            }
+            </script>
+            """,
+            height=0,
+        )
 
     # Show consent banner until the user decides
     if _consent_state is None:
