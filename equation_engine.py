@@ -170,15 +170,44 @@ class VarianceModel:
         Returns
         -------
         np.ndarray
-            Standard-deviation values.
+            Standard-deviation values (always real, non-negative).
         """
         if prescribed_params is None:
             prescribed_params = {}
-        prescribed_args = [prescribed_params.get(p, 1.0)
+
+        # Ensure all inputs are NumPy arrays for consistent broadcasting
+        mu = np.asarray(mu, dtype=float)
+        sigma = np.asarray(sigma, dtype=float)
+
+        prescribed_args = [float(prescribed_params.get(p, 1.0))
                            for p in self.prescribed_names]
-        args = [mu, sigma] + prescribed_args + [var_params[p]
-                                                 for p in self.param_names]
-        return np.abs(self._sd_lambda(*args))
+        vp_arrays = [np.asarray(var_params[p], dtype=float)
+                     for p in self.param_names]
+        args = [mu, sigma] + prescribed_args + vp_arrays
+
+        try:
+            result = self._sd_lambda(*args)
+        except (TypeError, ValueError, ZeroDivisionError):
+            # Fallback: if the lambdified function fails (e.g. negative
+            # base with fractional exponent), return |sigma| as a safe
+            # constant-noise fallback.
+            return np.abs(sigma)
+
+        # The lambdified expression may return complex values when mu < 0
+        # and the equation involves fractional powers.  Take the real
+        # magnitude and ensure the output is a finite float array.
+        result = np.asarray(result)
+        if np.iscomplexobj(result):
+            result = np.abs(result).real
+        else:
+            result = np.abs(result)
+
+        # Replace any NaN / Inf with a safe fallback (|sigma|)
+        bad = ~np.isfinite(result)
+        if np.any(bad):
+            result[bad] = np.abs(sigma) if np.ndim(sigma) == 0 else np.abs(sigma)[bad] if np.shape(sigma) == np.shape(result) else np.mean(np.abs(sigma))
+
+        return result
 
     # ── display ───────────────────────────────────────────────────────────
     def latex_str(self) -> str:
