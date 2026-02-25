@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.11.22)  24 FEB 2026 18:01
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.11.22)  25 FEB 2026 19:31
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -423,24 +423,24 @@ File: l3backend-pdftex.def 2023-01-16 L3 backend support: PDF output (pdfTeX)
 (./derivation.aux)
 \openout1 = `derivation.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 49.
-LaTeX Font Info:    ... okay on input line 49.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 50.
+LaTeX Font Info:    ... okay on input line 50.
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/graphics/graphicx.sty
 Package: graphicx 2021/09/16 v1.2d Enhanced LaTeX Graphics (DPC,SPQR)
@@ -493,7 +493,7 @@ Package graphics Info: Driver file: pdftex.def on input line 107.
 * \@reversemarginfalse
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
-Package hyperref Info: Link coloring ON on input line 49.
+Package hyperref Info: Link coloring ON on input line 50.
 (./derivation.out) (./derivation.out)
 \@outlinefile=\write3
 \openout3 = `derivation.out'.
@@ -538,58 +538,53 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
  [1{/usr/local/texlive/2023/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{/usr/
 local/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc}
 
-] [2] [3{/usr/local/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t
-s1.enc}] [4] [5]
+] [2] [3] [4] [5{/usr/local/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm
+-super-ts1.enc}]
 [6] [7]
 LaTeX Font Info:    Trying to load font information for T1+cmtt on input line 6
-26.
+41.
  (/usr/local/texlive/2023/texmf-dist/tex/latex/base/t1cmtt.fd
 File: t1cmtt.fd 2022/07/10 v2.5l Standard LaTeX font definitions
 ) [8]
 [9] (./derivation.aux)
-
-LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
-
 Package rerunfilecheck Info: File `derivation.out' has not changed.
-(rerunfilecheck)             Checksum: 13FAFD9A0C0061C05E98E0DE6AC5EB9D;4042.
+(rerunfilecheck)             Checksum: 5B7FD772EE294DD25E30DE30B73B43BF;3789.
  ) 
 Here is how much of TeX's memory you used:
- 14197 strings out of 476025
- 232181 string characters out of 5790016
- 1868388 words of memory out of 5000000
- 34355 multiletter control sequences out of 15000+600000
+ 14189 strings out of 476025
+ 232074 string characters out of 5790016
+ 1869388 words of memory out of 5000000
+ 34351 multiletter control sequences out of 15000+600000
  532688 words of font info for 83 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,13n,76p,315b,566s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,13n,76p,315b,568s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb
 ></usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb>
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb><
 /usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></
-usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></us
-r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/
-local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmib10.pfb></usr/
-local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmmib8.pfb></
-usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></us
-r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/l
-ocal/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/loca
-l/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local
-/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/local/t
-exlive/2023/texmf-dist/fonts/type1/public/amsfonts/symbols/msam10.pfb></usr/loc
-al/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr
-/local/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbi1095.pfb></usr/l
-ocal/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1095.pfb></usr/loc
-al/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1200.pfb></usr/local
-/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1440.pfb></usr/local/t
-exlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1728.pfb></usr/local/tex
-live/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1000.pfb></usr/local/texli
-ve/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1095.pfb></usr/local/texlive
-/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1200.pfb></usr/local/texlive/2
-023/texmf-dist/fonts/type1/public/cm-super/sfti1095.pfb></usr/local/texlive/202
-3/texmf-dist/fonts/type1/public/cm-super/sftt1095.pfb>
-Output written on derivation.pdf (9 pages, 422921 bytes).
+usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></us
+r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmib10.pfb></us
+r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmmib8.pfb>
+</usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></
+usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr
+/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/
+local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/lo
+cal/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/symbols/msam10.pfb></us
+r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb>
+</usr/local/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbi1095.pfb></
+usr/local/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1095.pfb></us
+r/local/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1200.pfb></usr/
+local/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1440.pfb></usr/lo
+cal/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfbx1728.pfb></usr/loca
+l/texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1000.pfb></usr/local/
+texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1095.pfb></usr/local/te
+xlive/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1200.pfb></usr/local/texl
+ive/2023/texmf-dist/fonts/type1/public/cm-super/sfti1095.pfb></usr/local/texliv
+e/2023/texmf-dist/fonts/type1/public/cm-super/sftt1095.pfb>
+Output written on derivation.pdf (9 pages, 407163 bytes).
 PDF statistics:
- 416 PDF objects out of 1000 (max. 8388607)
- 350 compressed objects within 4 object streams
- 100 named destinations out of 1000 (max. 500000)
- 201 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 396 PDF objects out of 1000 (max. 8388607)
+ 334 compressed objects within 4 object streams
+ 96 named destinations out of 1000 (max. 500000)
+ 185 words of extra memory for PDF output out of 10000 (max. 10000000)
 

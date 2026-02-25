@@ -13,7 +13,8 @@
 \gdef\HyperFirstAtBeginDocument#1{#1}
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
-\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{2}{section.1}\protected@file@percent }
+\citation{gelman2004}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {2}Notation}{2}{section.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {3}The Calibration Model}{2}{section.3}\protected@file@percent }
 \newlabel{sec:model}{{3}{2}{The Calibration Model}{section.3}{}}
@@ -32,16 +33,15 @@
 \@writefile{toc}{\contentsline {section}{\numberline {4}Heteroscedastic Variance Model}{3}{section.4}\protected@file@percent }
 \newlabel{sec:hetero}{{4}{3}{Heteroscedastic Variance Model}{section.4}{}}
 \newlabel{sec:hetero@cref}{{[section][4][]4}{[1][3][]3}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Variance Model}{3}{subsection.4.1}\protected@file@percent }
-\newlabel{eq:hetero}{{4}{3}{Variance Model}{equation.4.4}{}}
-\newlabel{eq:hetero@cref}{{[equation][4][]4}{[1][3][]3}}
-\newlabel{eq:sd-hetero}{{5}{3}{Variance Model}{equation.4.5}{}}
-\newlabel{eq:sd-hetero@cref}{{[equation][5][]5}{[1][3][]3}}
-\newlabel{eq:lik-hetero}{{6}{3}{Variance Model}{equation.4.6}{}}
+\newlabel{eq:var-generic}{{4}{3}{Heteroscedastic Variance Model}{equation.4.4}{}}
+\newlabel{eq:var-generic@cref}{{[equation][4][]4}{[1][3][]3}}
+\newlabel{eq:obs-hetero}{{5}{3}{Heteroscedastic Variance Model}{equation.4.5}{}}
+\newlabel{eq:obs-hetero@cref}{{[equation][5][]5}{[1][3][]3}}
+\newlabel{eq:lik-hetero}{{6}{3}{Heteroscedastic Variance Model}{equation.4.6}{}}
 \newlabel{eq:lik-hetero@cref}{{[equation][6][]6}{[1][3][]3}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Prior on $\alpha $}{3}{subsection.4.2}\protected@file@percent }
-\newlabel{eq:prior-alpha}{{7}{3}{Prior on \texorpdfstring {$\alpha $}{alpha}}{equation.4.7}{}}
-\newlabel{eq:prior-alpha@cref}{{[equation][7][]7}{[1][3][]3}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Built-in Variance Functions}{3}{subsection.4.1}\protected@file@percent }
+\newlabel{eq:prior-gamma}{{7}{3}{Built-in Variance Functions}{equation.4.7}{}}
+\newlabel{eq:prior-gamma@cref}{{[equation][7][]7}{[1][3][]3}}
 \citation{neal2011}
 \@writefile{toc}{\contentsline {section}{\numberline {5}Prior Distributions}{4}{section.5}\protected@file@percent }
 \newlabel{sec:priors}{{5}{4}{Prior Distributions}{section.5}{}}
@@ -76,46 +76,41 @@
 \newlabel{sec:inverse}{{8}{5}{Inverse Prediction}{section.8}{}}
 \newlabel{sec:inverse@cref}{{[section][8][]8}{[1][5][]5}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.1}Problem Statement}{5}{subsection.8.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Homoscedastic case.}{5}{section*.5}\protected@file@percent }
-\newlabel{eq:new-obs}{{20}{5}{Homoscedastic case}{equation.8.20}{}}
+\newlabel{eq:new-obs}{{20}{5}{Problem Statement}{equation.8.20}{}}
 \newlabel{eq:new-obs@cref}{{[equation][20][]20}{[1][5][]5}}
 \citation{brent1973}
-\@writefile{toc}{\contentsline {paragraph}{Heteroscedastic case.}{6}{section*.6}\protected@file@percent }
-\newlabel{eq:new-obs-hetero}{{21}{6}{Heteroscedastic case}{equation.8.21}{}}
-\newlabel{eq:new-obs-hetero@cref}{{[equation][21][]21}{[1][6][]6}}
+\newlabel{eq:sigma-star-approx}{{22}{6}{Problem Statement}{equation.8.22}{}}
+\newlabel{eq:sigma-star-approx@cref}{{[equation][22][]22}{[1][5][]6}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.2}Posterior Predictive Distribution of $x^{*}$}{6}{subsection.8.2}\protected@file@percent }
-\newlabel{eq:ppd}{{22}{6}{Posterior Predictive Distribution of \texorpdfstring {$x^{*}$}{x*}}{equation.8.22}{}}
-\newlabel{eq:ppd@cref}{{[equation][22][]22}{[1][6][]6}}
+\newlabel{eq:ppd}{{23}{6}{Posterior Predictive Distribution of \texorpdfstring {$x^{*}$}{x*}}{equation.8.23}{}}
+\newlabel{eq:ppd@cref}{{[equation][23][]23}{[1][6][]6}}
 \newlabel{prop:mc}{{1}{6}{Monte Carlo inverse prediction}{proposition.1}{}}
 \newlabel{prop:mc@cref}{{[proposition][1][]1}{[1][6][]6}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.3}Inversion Methods}{6}{subsection.8.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Symbolic inverse.}{6}{section*.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Numerical inverse.}{6}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Symbolic inverse.}{6}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Numerical inverse.}{6}{section*.6}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.4}Credible Intervals and Point Estimates}{6}{subsection.8.4}\protected@file@percent }
 \citation{breusch1979}
-\citation{wald1940}
 \@writefile{toc}{\contentsline {section}{\numberline {9}Residual Diagnostics}{7}{section.9}\protected@file@percent }
 \newlabel{sec:diagnostics}{{9}{7}{Residual Diagnostics}{section.9}{}}
 \newlabel{sec:diagnostics@cref}{{[section][9][]9}{[1][7][]7}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.1}Residuals}{7}{subsection.9.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.2}Breusch--Pagan Test}{7}{subsection.9.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.3}Wald--Wolfowitz Runs Test}{7}{subsection.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.3}Practical Guidance}{7}{subsection.9.3}\protected@file@percent }
 \bibstyle{plainnat}
 \bibcite{breusch1979}{{1}{1979}{{Breusch and Pagan}}{{}}}
 \bibcite{brent1973}{{2}{1973}{{Brent}}{{}}}
 \bibcite{gelman2004}{{3}{2004}{{Gelman et~al.}}{{}}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.4}Practical Guidance}{8}{subsection.9.4}\protected@file@percent }
+\bibcite{gelman2013}{{4}{2013}{{Gelman et~al.}}{{}}}
 \@writefile{toc}{\contentsline {section}{\numberline {10}Summary of Assumptions}{8}{section.10}\protected@file@percent }
 \newlabel{sec:assumptions}{{10}{8}{Summary of Assumptions}{section.10}{}}
 \newlabel{sec:assumptions@cref}{{[section][10][]10}{[1][8][]8}}
-\@writefile{toc}{\contentsline {paragraph}{When assumptions may be violated.}{8}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{When assumptions may be violated.}{8}{section*.7}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {11}Implementation Notes}{8}{section.11}\protected@file@percent }
 \newlabel{sec:software}{{11}{8}{Implementation Notes}{section.11}{}}
 \newlabel{sec:software@cref}{{[section][11][]11}{[1][8][]8}}
-\bibcite{gelman2013}{{4}{2013}{{Gelman et~al.}}{{}}}
 \bibcite{hoffman2014}{{5}{2014}{{Hoffman and Gelman}}{{}}}
 \bibcite{neal2011}{{6}{2011}{{Neal}}{{}}}
 \bibcite{nesterov2009}{{7}{2009}{{Nesterov}}{{}}}
 \bibcite{salvatier2016}{{8}{2016}{{Salvatier et~al.}}{{}}}
-\bibcite{wald1940}{{9}{1940}{{Wald and Wolfowitz}}{{}}}
 \gdef \@abspage@last{9}
