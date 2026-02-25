@@ -81,7 +81,7 @@ else:
 _pdf_static = pathlib.Path(__file__).parent / "static" / "derivation.pdf"
 if _pdf_static.exists():
     import os as _os
-    _pdf_mtime = int(_os._getmtime(_pdf_static))
+    _pdf_mtime = int(_os.path.getmtime(_pdf_static))
     st.markdown(
         f'📄 <a href="app/static/derivation.pdf?v={_pdf_mtime}" '
         f'target="_blank"><strong>Under the Hood</strong> — '
