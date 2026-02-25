@@ -82,16 +82,54 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Google Analytics consent banner
-# Disable entirely by setting GA_TRACKING_ID = "" in app_config.py
+# Google Analytics — Consent Mode v2
+# The tag is ALWAYS injected (so Tag Assistant detects it on every load),
+# but analytics_storage starts as "denied" until the user accepts.
+# Disable everything by setting GA_TRACKING_ID = "" in app_config.py.
 # ══════════════════════════════════════════════════════════════════════════════
 if GA_TRACKING_ID:
     import streamlit.components.v1 as _components
 
     if "ga_consent" not in st.session_state:
-        st.session_state["ga_consent"] = None  # None = not yet decided
+        st.session_state["ga_consent"] = None  # None = undecided
 
-    if st.session_state["ga_consent"] is None:
+    _consent_state = st.session_state["ga_consent"]
+    _consent_js = "true" if _consent_state is True else "false"
+
+    # Always inject GA with Consent Mode — Tag Assistant sees it immediately.
+    # On rerun after Accept, the script updates analytics_storage to granted.
+    _components.html(
+        f"""
+        <script>
+        (function() {{
+            var p = window.parent;
+            var granted = {_consent_js};
+            if (!p._gaLoaded) {{
+                p._gaLoaded = true;
+                p.dataLayer = p.dataLayer || [];
+                p.gtag = function() {{ p.dataLayer.push(arguments); }};
+                p.gtag('consent', 'default', {{
+                    'analytics_storage': granted ? 'granted' : 'denied',
+                    'ad_storage': 'denied'
+                }});
+                var s = p.document.createElement('script');
+                s.async = true;
+                s.src = 'https://www.googletagmanager.com/gtag/js'
+                        + '?id={GA_TRACKING_ID}';
+                p.document.head.appendChild(s);
+                p.gtag('js', new Date());
+                p.gtag('config', '{GA_TRACKING_ID}');
+            }} else if (granted) {{
+                p.gtag('consent', 'update', {{'analytics_storage': 'granted'}});
+            }}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+    # Show consent banner until the user decides
+    if _consent_state is None:
         st.markdown(
             "<div style='background:#f0f2f6;padding:10px 16px;"
             "border-radius:6px;margin-bottom:8px'>"
@@ -111,13 +149,12 @@ if GA_TRACKING_ID:
                          key="_ga_decline"):
                 st.session_state["ga_consent"] = False
                 st.rerun()
-        # Colour the buttons green/red via JS injected into the parent frame
+        # Colour Accept green, Decline red via JS in the parent frame
         _components.html(
             """
             <script>
             (function recolour() {
-                var p = window.parent.document;
-                var btns = p.querySelectorAll('button');
+                var btns = window.parent.document.querySelectorAll('button');
                 var found = 0;
                 btns.forEach(function(b) {
                     var t = b.innerText.trim();
@@ -138,31 +175,6 @@ if GA_TRACKING_ID:
                 });
                 if (found < 2) { setTimeout(recolour, 80); }
             })();
-            </script>
-            """,
-            height=0,
-        )
-
-    if st.session_state.get("ga_consent") is True:
-        # Inject GA into the parent frame so Tag Assistant detects it
-        _components.html(
-            f"""
-            <script>
-            (function injectGA() {{
-                if (window.parent._gaInjected) return;
-                window.parent._gaInjected = true;
-                var s = window.parent.document.createElement('script');
-                s.async = true;
-                s.src = 'https://www.googletagmanager.com/gtag/js'
-                        + '?id={GA_TRACKING_ID}';
-                window.parent.document.head.appendChild(s);
-                window.parent.dataLayer = window.parent.dataLayer || [];
-                window.parent.gtag = function() {{
-                    window.parent.dataLayer.push(arguments);
-                }};
-                window.parent.gtag('js', new Date());
-                window.parent.gtag('config', '{GA_TRACKING_ID}');
-            }})();
             </script>
             """,
             height=0,
