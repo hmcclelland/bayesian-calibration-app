@@ -11,7 +11,11 @@ import matplotlib.pyplot as plt
 import pathlib
 from typing import Dict, Optional, List
 from equation_engine import EquationModel, VarianceModel
-from app_config import MODE, GA_TRACKING_ID
+from app_config import MODE
+try:
+    from app_config import GA_TRACKING_ID
+except ImportError:
+    GA_TRACKING_ID = ""
 
 ALLOW_UPLOAD = (MODE == "local")
 
