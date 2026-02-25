@@ -58,7 +58,9 @@ class VarianceModel:
 
     The variable ``mu`` refers to the predicted mean from the mean model.
     ``sigma`` is always implicitly available as the base noise scale.
-    Every other symbol becomes a learnable variance parameter.
+    Every other symbol becomes a learnable variance parameter — **unless**
+    it is wrapped in square brackets (e.g. ``[A]``), in which case it is
+    treated as a *prescribed* (user-supplied constant) parameter.
     """
 
     _RESERVED = {"x", "y", "pi", "e", "E", "I", "N"}
@@ -70,8 +72,17 @@ class VarianceModel:
 
     def _parse(self):
         s = self.equation_str
-        if "=" in s:
-            lhs, rhs = s.split("=", 1)
+
+        # ── Detect prescribed parameters (square brackets) ────────────
+        # Find tokens like  [A]  or  [myConst]  — an identifier wrapped
+        # in square brackets.
+        self._prescribed_raw: List[str] = re.findall(
+            r'\[([A-Za-z_]\w*)\]', s)
+        # Strip the brackets from the equation string so SymPy can parse it
+        _clean = re.sub(r'\[([A-Za-z_]\w*)\]', r'\1', s)
+
+        if "=" in _clean:
+            lhs, rhs = _clean.split("=", 1)
             lhs = lhs.strip()
             rhs = rhs.strip()
             if lhs.lower() != "sd":
@@ -80,7 +91,7 @@ class VarianceModel:
                     f"Write: sd = g(mu, ...)"
                 )
         else:
-            rhs = s
+            rhs = _clean
 
         mu_sym = sp.Symbol("mu")
         sigma_sym = sp.Symbol("sigma")
@@ -109,12 +120,22 @@ class VarianceModel:
         self.sd_sym = sp.Symbol("sd")
 
         all_symbols = sorted(self.rhs_expr.free_symbols, key=lambda s: s.name)
-        # Variance-specific learnable parameters (everything except mu and sigma)
+
+        # Separate prescribed symbols from learnable symbols
+        prescribed_set = set(self._prescribed_raw)
+        self.prescribed_symbols = [s for s in all_symbols
+                                   if s.name in prescribed_set
+                                   and s not in (mu_sym, sigma_sym)]
+        self.prescribed_names = [s.name for s in self.prescribed_symbols]
+
+        # Variance-specific learnable parameters (everything except mu,
+        # sigma, and prescribed params)
         self.param_symbols = [s for s in all_symbols
-                              if s not in (mu_sym, sigma_sym)]
+                              if s not in (mu_sym, sigma_sym)
+                              and s.name not in prescribed_set]
         self.param_names = [s.name for s in self.param_symbols]
 
-        for pn in self.param_names:
+        for pn in self.param_names + self.prescribed_names:
             if pn in self._RESERVED:
                 raise ValueError(
                     f"'{pn}' is reserved. Choose a different name. "
@@ -124,12 +145,15 @@ class VarianceModel:
         self.equation_sym = sp.Eq(self.sd_sym, self.rhs_expr)
 
     def _build_numpy_callable(self):
-        """Build a NumPy-callable  sd = f(mu, sigma, *var_params)."""
-        all_args = [self.mu_sym, self.sigma_sym] + self.param_symbols
+        """Build a NumPy-callable  sd = f(mu, sigma, *prescribed, *var_params)."""
+        all_args = ([self.mu_sym, self.sigma_sym]
+                    + self.prescribed_symbols + self.param_symbols)
         self._sd_lambda = sp.lambdify(all_args, self.rhs_expr, modules="numpy")
 
     def sd_numpy(self, mu: np.ndarray, sigma: np.ndarray,
-                 var_params: Dict[str, np.ndarray]) -> np.ndarray:
+                 var_params: Dict[str, np.ndarray],
+                 prescribed_params: Optional[Dict[str, float]] = None,
+                 ) -> np.ndarray:
         """Evaluate sd = g(mu, sigma, ...) with NumPy arrays.
 
         Parameters
@@ -139,14 +163,21 @@ class VarianceModel:
         sigma : array-like
             Base noise scale draws.
         var_params : dict
-            Draws for each variance-model parameter.
+            Draws for each *learnable* variance-model parameter.
+        prescribed_params : dict, optional
+            Fixed values for prescribed (``[A]``-wrapped) parameters.
 
         Returns
         -------
         np.ndarray
             Standard-deviation values.
         """
-        args = [mu, sigma] + [var_params[p] for p in self.param_names]
+        if prescribed_params is None:
+            prescribed_params = {}
+        prescribed_args = [prescribed_params.get(p, 1.0)
+                           for p in self.prescribed_names]
+        args = [mu, sigma] + prescribed_args + [var_params[p]
+                                                 for p in self.param_names]
         return np.abs(self._sd_lambda(*args))
 
     # ── display ───────────────────────────────────────────────────────────
@@ -160,7 +191,8 @@ class VarianceModel:
 
     def __repr__(self):
         return (f"VarianceModel('{self.equation_str}')  "
-                f"params={self.param_names}")
+                f"params={self.param_names}  "
+                f"prescribed={self.prescribed_names}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -359,6 +391,7 @@ class EquationModel:
         log_scale_params: Optional[List[str]] = None,
         variance_model: str = "constant",
         variance_eq: Optional[VarianceModel] = None,
+        prescribed_values: Optional[Dict[str, float]] = None,
     ):
         """Build and return a PyMC model for this equation.
 
@@ -379,6 +412,9 @@ class EquationModel:
             ``"custom"``.
         variance_eq : VarianceModel, optional
             Required when *variance_model* is ``"custom"``.
+        prescribed_values : dict, optional
+            Fixed values for prescribed (``[A]``-wrapped) parameters in the
+            variance equation.  Keys are bare names (without ``[ ]``).
 
         Returns
         -------
@@ -394,17 +430,8 @@ class EquationModel:
             prior_config = {}
         if log_scale_params is None:
             log_scale_params = []
-
-        _valid_vm = {"constant", "proportional", "gelman2004", "custom"}
-        if variance_model not in _valid_vm:
-            raise ValueError(
-                f"variance_model must be one of {_valid_vm}, "
-                f"got {variance_model!r}"
-            )
-        if variance_model == "custom" and variance_eq is None:
-            raise ValueError(
-                "variance_eq is required when variance_model='custom'"
-            )
+        if prescribed_values is None:
+            prescribed_values = {}
 
         # ── Compute least-squares starting values for initialisation ──────
         ls_initvals = self._estimate_initvals(x_cal, y_cal)
@@ -516,14 +543,21 @@ class EquationModel:
                         vp_cfg = {"dist": "HalfNormal", "sigma": 2}
                     var_param_vars[vp] = _make_prior(vp, vp_cfg, pm)
 
-                # lambdify:  sd = f(mu, sigma, <var_params...>)
+                # lambdify includes prescribed symbols as arguments
                 var_args = ([variance_eq.mu_sym, variance_eq.sigma_sym]
+                            + variance_eq.prescribed_symbols
                             + variance_eq.param_symbols)
                 pt_var_fn = sp.lambdify(
                     var_args, variance_eq.rhs_expr,
                     modules=[pt_mapping, "numpy"],
                 )
+                # Prescribed params become fixed float constants
+                prescribed_call_args = [
+                    float(prescribed_values.get(p, 1.0))
+                    for p in variance_eq.prescribed_names
+                ]
                 var_call_args = ([mu, sigma]
+                                 + prescribed_call_args
                                  + [var_param_vars[p]
                                     for p in variance_eq.param_names])
                 sd = pt_var_fn(*var_call_args)

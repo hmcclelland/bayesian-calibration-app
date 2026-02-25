@@ -43,7 +43,7 @@ _MEAN_PRESETS = {
 
 # ── Variance model presets ────────────────────────────────────────────────────
 _VARIANCE_PRESETS = {
-    "Custom": "sd = (mu / A)**alpha * sigma",
+    "Custom": "sd = (mu / [A])**alpha * sigma",
     "Constant": "sd = sigma",
     "Proportional to mean (constant CV)": "sd = mu * sigma",
 }
@@ -81,7 +81,7 @@ else:
 _pdf_static = pathlib.Path(__file__).parent / "static" / "derivation.pdf"
 if _pdf_static.exists():
     import os as _os
-    _pdf_mtime = int(_os.path.getmtime(_pdf_static))
+    _pdf_mtime = int(_os._getmtime(_pdf_static))
     st.markdown(
         f'📄 <a href="app/static/derivation.pdf?v={_pdf_mtime}" '
         f'target="_blank"><strong>Under the Hood</strong> — '
@@ -106,6 +106,9 @@ with st.sidebar:
 - Everything else = parameter to estimate
 - `**` or `^` for powers
 - `*` for multiply (required)
+- Wrap a parameter name in square brackets
+  (e.g. `[A]`) to make it a **prescribed constant**
+  — it won't be fitted; you supply its value directly.
 
 **Functions:** `exp()` `log()` `sqrt()`
 `sin()` `cos()` `tan()`
@@ -122,6 +125,13 @@ y = a / (1 + exp(-b*(x - c)))
 y = a * (1 - exp(-b*x))
 y = b1 + b2 / (1 + (x/b3)**(-b4))
 ```
+
+**Variance model example:**
+```
+sd = (mu / [A])**alpha * sigma
+```
+Here `[A]` is prescribed (you set its value),
+while `alpha` and `sigma` are estimated.
     """)
     if MODE == "local":
         st.divider()
@@ -183,7 +193,8 @@ with col_var:
         placeholder="e.g.  sd = sigma",
         help="Write the noise standard deviation as a function of mu "
              "(predicted mean) and sigma (base noise scale). Any other "
-             "symbol becomes a learnable parameter.",
+             "symbol becomes a learnable parameter. Wrap a symbol name "
+             "in square brackets (e.g. [A]) to make it a prescribed constant.",
         key="var_eq_input",
     )
 
@@ -231,6 +242,11 @@ if eq_model is not None:
                 st.markdown(
                     "Variance parameters: "
                     + ", ".join([f"**{p}**" for p in var_model.param_names])
+                )
+            if var_model.prescribed_names:
+                st.markdown(
+                    "Prescribed constants: "
+                    + ", ".join([f"**{p}**" for p in var_model.prescribed_names])
                 )
         else:
             st.info("Enter a valid variance equation above.")
@@ -347,6 +363,9 @@ else:
 # Advanced Options (collapsible)
 # ══════════════════════════════════════════════════════════════════════════════
 
+# prescribed_values must be initialised BEFORE the expander so it is
+# visible in the outer scope (results display, model build, etc.).
+prescribed_values: Dict[str, float] = {}
 
 def _prior_widget(label: str, key_prefix: str, default_dist: str = "Normal",
                   default_params: Optional[Dict] = None,
@@ -434,6 +453,14 @@ if eq_model is not None and cal_df is not None:
     except Exception:
         _data_informed_priors = {}
 
+# ── Compute default prescribed values when data is available ──────────────
+_prescribed_defaults: Dict[str, float] = {}
+if var_model is not None and cal_df is not None:
+    y_arr = cal_df["Y"].values.astype(float)
+    for pname in var_model.prescribed_names:
+        # Default: A → mean(y).  Generic fallback for other names: mean(y).
+        _prescribed_defaults[pname] = float(np.mean(y_arr))
+
 
 def _get_default_prior(param_name: str, param_source: str):
     """Return (dist_name, params_dict) using data-informed priors when
@@ -445,11 +472,15 @@ def _get_default_prior(param_name: str, param_source: str):
         return dist, params
     # Fallback generic defaults
     if param_name == "sigma":
-        return "HalfNormal", {"sigma": 10.0}
+        # Default: Uniform(0, 50) — wide but bounded
+        return "Uniform", {"lower": 0.0, "upper": 50.0}
+    elif param_name == "alpha":
+        return "Uniform", {"lower": 0.0, "upper": 2.0}
     elif param_source == "variance model":
-        return "HalfNormal", {"sigma": 2.0}
+        return "Uniform", {"lower": 0.0, "upper": 2.0}
     else:
-        return "Normal", {"mu": 0.0, "sigma": 10.0}
+        # Mean model params (b1, b2, b3, b4, etc.) → N(0, 100)
+        return "Normal", {"mu": 0.0, "sigma": 100.0}
 
 
 with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
@@ -472,6 +503,25 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
     credible_level = st.slider("Credible interval", min_value=0.50,
                                max_value=0.99, value=0.95, step=0.01,
                                key="adv_ci")
+
+    # ── Prescribed parameters (fixed constants) ──────────────────────────
+    if var_model is not None and var_model.prescribed_names:
+        st.markdown("---")
+        st.markdown("#### Prescribed Constants")
+        st.markdown(
+            "These parameters (wrapped in `[brackets]` in the variance equation) "
+            "are **not fitted** — set their values here."
+        )
+        for pname in var_model.prescribed_names:
+            default_val = _prescribed_defaults.get(pname, 1.0)
+            prescribed_values[pname] = st.number_input(
+                f"**{pname}** (prescribed)",
+                value=default_val,
+                format="%.4f",
+                key=f"prescribed_{pname}",
+                help=f"Fixed value for {pname}. Default is mean(Y) from "
+                     f"calibration data.",
+            )
 
     # ── Priors ────────────────────────────────────────────────────────────
     st.markdown("---")
@@ -685,6 +735,7 @@ else:
                     log_scale_params=log_scale_params,
                     variance_model=variance_model_key,
                     variance_eq=var_model,
+                    prescribed_values=prescribed_values,
                 )
             except Exception as exc:
                 st.error(f"\u274c Model build failed: {exc}")
@@ -726,6 +777,7 @@ else:
         st.session_state["y_cal"] = y_cal
         st.session_state["y_new_vals"] = y_new_vals
         st.session_state["variance_model"] = variance_model_key
+        st.session_state["prescribed_values"] = prescribed_values
         st.session_state["run_complete"] = True
         st.session_state["show_inverse"] = False  # reset on new run
 
@@ -744,6 +796,7 @@ else:
         y_cal = st.session_state["y_cal"]
         y_new_vals_r = st.session_state.get("y_new_vals", y_new_vals)
         stored_variance_model = st.session_state.get("variance_model", "constant")
+        prescribed_values = st.session_state.get("prescribed_values", {})
 
         # -- MCMC Summary -------------------------------------------------
         st.subheader("MCMC Summary")
@@ -820,6 +873,7 @@ else:
                     mu_j,
                     np.full_like(mu_j, sigma_draws_arr[idx]),
                     {k: np.full_like(mu_j, v) for k, v in vp_j.items()},
+                    prescribed_params=prescribed_values,
                 )
             else:
                 sd_j = np.full_like(mu_j, sigma_draws_arr[idx])
@@ -851,6 +905,7 @@ else:
                 np.full_like(y_pred, median_sigma),
                 {k: np.full_like(y_pred, v)
                  for k, v in median_var_params.items()},
+                prescribed_params=prescribed_values,
             )
         else:
             sd_at_cal = np.full_like(y_pred, median_sigma)
@@ -1064,7 +1119,9 @@ else:
                 if stored_var_model is not None:
                     mu_proxy = np.full(n_draws, y_val)
                     sd_i = stored_var_model.sd_numpy(
-                        mu_proxy, sigma_draws, var_param_draws)
+                        mu_proxy, sigma_draws, var_param_draws,
+                        prescribed_params=prescribed_values,
+                    )
                     sd_i = np.maximum(sd_i, 1e-12)
                 else:
                     sd_i = sigma_draws
