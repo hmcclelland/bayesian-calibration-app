@@ -63,7 +63,7 @@ class VarianceModel:
     treated as a *prescribed* (user-supplied constant) parameter.
     """
 
-    _RESERVED = {"x", "y", "pi", "e", "E", "I", "N"}
+    _RESERVED = {"y", "pi", "e", "E", "I", "N"}
 
     def __init__(self, equation_str: str):
         self.equation_str = equation_str.strip()
@@ -95,7 +95,8 @@ class VarianceModel:
 
         mu_sym = sp.Symbol("mu")
         sigma_sym = sp.Symbol("sigma")
-        local_dict = {"mu": mu_sym, "sigma": sigma_sym,
+        x_sym = sp.Symbol("x")
+        local_dict = {"mu": mu_sym, "sigma": sigma_sym, "x": x_sym,
                       "e": sp.E, "pi": sp.pi}
         local_dict = _pre_declare_symbols(rhs, local_dict)
         transformations = (
@@ -117,21 +118,23 @@ class VarianceModel:
 
         self.mu_sym = mu_sym
         self.sigma_sym = sigma_sym
+        self.x_sym = x_sym
         self.sd_sym = sp.Symbol("sd")
 
         all_symbols = sorted(self.rhs_expr.free_symbols, key=lambda s: s.name)
+        self.uses_x = x_sym in self.rhs_expr.free_symbols
 
         # Separate prescribed symbols from learnable symbols
         prescribed_set = set(self._prescribed_raw)
         self.prescribed_symbols = [s for s in all_symbols
                                    if s.name in prescribed_set
-                                   and s not in (mu_sym, sigma_sym)]
+                                   and s not in (mu_sym, sigma_sym, x_sym)]
         self.prescribed_names = [s.name for s in self.prescribed_symbols]
 
         # Variance-specific learnable parameters (everything except mu,
-        # sigma, and prescribed params)
+        # sigma, x, and prescribed params)
         self.param_symbols = [s for s in all_symbols
-                              if s not in (mu_sym, sigma_sym)
+                              if s not in (mu_sym, sigma_sym, x_sym)
                               and s.name not in prescribed_set]
         self.param_names = [s.name for s in self.param_symbols]
 
@@ -145,14 +148,16 @@ class VarianceModel:
         self.equation_sym = sp.Eq(self.sd_sym, self.rhs_expr)
 
     def _build_numpy_callable(self):
-        """Build a NumPy-callable  sd = f(mu, sigma, *prescribed, *var_params)."""
-        all_args = ([self.mu_sym, self.sigma_sym]
+        """Build a NumPy-callable  sd = f(x, mu, sigma, *prescribed, *var_params)."""
+        all_args = (([self.x_sym] if self.uses_x else [])
+                    + [self.mu_sym, self.sigma_sym]
                     + self.prescribed_symbols + self.param_symbols)
         self._sd_lambda = sp.lambdify(all_args, self.rhs_expr, modules="numpy")
 
     def sd_numpy(self, mu: np.ndarray, sigma: np.ndarray,
                  var_params: Dict[str, np.ndarray],
                  prescribed_params: Optional[Dict[str, float]] = None,
+                 x: Optional[np.ndarray] = None,
                  ) -> np.ndarray:
         """Evaluate sd = g(mu, sigma, ...) with NumPy arrays.
 
@@ -183,7 +188,8 @@ class VarianceModel:
                            for p in self.prescribed_names]
         vp_arrays = [np.asarray(var_params[p], dtype=float)
                      for p in self.param_names]
-        args = [mu, sigma] + prescribed_args + vp_arrays
+        x_args = [np.asarray(x, dtype=float)] if self.uses_x else []
+        args = x_args + [mu, sigma] + prescribed_args + vp_arrays
 
         try:
             result = self._sd_lambda(*args)
@@ -572,8 +578,9 @@ class EquationModel:
                         vp_cfg = {"dist": "HalfNormal", "sigma": 2}
                     var_param_vars[vp] = _make_prior(vp, vp_cfg, pm)
 
-                # lambdify includes prescribed symbols as arguments
-                var_args = ([variance_eq.mu_sym, variance_eq.sigma_sym]
+                # lambdify includes x (if used) and prescribed symbols as arguments
+                var_args = (([variance_eq.x_sym] if variance_eq.uses_x else [])
+                            + [variance_eq.mu_sym, variance_eq.sigma_sym]
                             + variance_eq.prescribed_symbols
                             + variance_eq.param_symbols)
                 pt_var_fn = sp.lambdify(
@@ -585,7 +592,8 @@ class EquationModel:
                     float(prescribed_values.get(p, 1.0))
                     for p in variance_eq.prescribed_names
                 ]
-                var_call_args = ([mu, sigma]
+                var_call_args = (([x_data] if variance_eq.uses_x else [])
+                                 + [mu, sigma]
                                  + prescribed_call_args
                                  + [var_param_vars[p]
                                     for p in variance_eq.param_names])

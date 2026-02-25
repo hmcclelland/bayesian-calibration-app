@@ -22,6 +22,14 @@ _DEFAULT_Y = "101.8\n121.4\n105.2\n114.1\n92.7\n93.3\n72.4\n61.1\n57.6\n50.0\n38
 # Unknown 9 measurements for inverse prediction demo
 _DEFAULT_Y_NEW = "49.6\n43.8\n24.0\n24.1\n17.3\n17.6\n15.6\n17.1"
 
+# ── Example 1 — synthetic linear data (fixed seed for reproducibility) ────────
+_rng_ex1 = np.random.default_rng(42)
+_EX1_X_ARR = np.round(_rng_ex1.uniform(0, 50, 20), 2)
+_EX1_Y_ARR = np.round(10 + 5 * _EX1_X_ARR + _rng_ex1.normal(0, 5, 20), 2)
+_EX1_X_STR = "\n".join(str(v) for v in _EX1_X_ARR)
+_EX1_Y_STR = "\n".join(str(v) for v in _EX1_Y_ARR)
+_EX1_Y_NEW_STR = "100\n200"
+
 # ── Prior distribution choices ────────────────────────────────────────────────
 _PRIOR_DISTS = ["Normal", "HalfNormal", "Uniform", "LogNormal",
                 "Exponential", "Gamma"]
@@ -50,16 +58,22 @@ _VARIANCE_PRESETS = {
 
 # ── Session-state defaults (must be set before any widget that uses these keys)
 if "mean_eq_input" not in st.session_state:
-    st.session_state["mean_eq_input"] = _MEAN_PRESETS["Custom"]
+    st.session_state["mean_eq_input"] = _MEAN_PRESETS["Linear"]
 if "var_eq_input" not in st.session_state:
-    st.session_state["var_eq_input"] = _VARIANCE_PRESETS["Custom"]
+    st.session_state["var_eq_input"] = _VARIANCE_PRESETS["Constant"]
+if "cal_x_text" not in st.session_state:
+    st.session_state["cal_x_text"] = ""
+if "cal_y_text" not in st.session_state:
+    st.session_state["cal_y_text"] = ""
+if "new_y_text" not in st.session_state:
+    st.session_state["new_y_text"] = ""
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Page config
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Bayesian Calibration Tool",
-    page_icon="\U0001f52c",
+    page_icon=None,
     layout="wide",
 )
 
@@ -83,22 +97,29 @@ if _pdf_static.exists():
     import os as _os
     _pdf_mtime = int(_os.path.getmtime(_pdf_static))
     st.markdown(
-        f'📄 <a href="app/static/derivation.pdf?v={_pdf_mtime}" '
+        f'<a href="app/static/derivation.pdf?v={_pdf_mtime}" '
         f'target="_blank"><strong>Under the Hood</strong> — '
         f'Mathematical derivation (PDF)</a>',
         unsafe_allow_html=True,
     )
 else:
     st.markdown(
-        "📄 *Under the Hood — mathematical derivation PDF not yet compiled. "
+        "*Under the Hood — mathematical derivation PDF not yet compiled. "
         "See `docs/derivation.tex`.*"
+    )
+
+if MODE != "local":
+    st.info(
+        "**Online version:** data entry is by manual text input only. "
+        "To upload CSV files, download and run the app locally — "
+        "[get it on GitHub](YOUR_GITHUB_URL_HERE)."
     )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Sidebar — Equation syntax help + mode indicator
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.header("\U0001f4d6 Equation syntax")
+    st.header("Equation syntax")
     st.markdown("""
 **Rules:**
 - `x` = independent variable
@@ -126,19 +147,26 @@ y = a * (1 - exp(-b*x))
 y = b1 + b2 / (1 + (x/b3)**(-b4))
 ```
 
-**Variance model example:**
+**Variance model:**
+- `mu` = predicted mean from the calibration model
+- `sigma` = base noise scale (always available)
+- `x` = the calibration X value (available in variance equations)
+- Wrap in `[brackets]` to make a **prescribed constant**
+
 ```
 sd = (mu / [A])**alpha * sigma
+sd = sigma * x**0.5
+sd = sigma * (1 + alpha * x)
 ```
 Here `[A]` is prescribed (you set its value),
 while `alpha` and `sigma` are estimated.
     """)
     if MODE == "local":
         st.divider()
-        st.success("\U0001f5a5\ufe0f Running in **local** mode — CSV upload enabled.")
+        st.success("Running in **local** mode — CSV upload enabled.")
     else:
         st.divider()
-        st.info("\u2601\ufe0f Running in **cloud** mode — manual data entry only.")
+        st.info("Running in **cloud** mode — manual data entry only.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Equation Editor & Variance Model (side-by-side)
@@ -161,16 +189,16 @@ col_mean, col_var = st.columns(2)
 with col_mean:
     st.subheader("Mean model")
     mean_preset = st.selectbox(
-        "📈 **Preset**",
+        "**Preset**",
         list(_MEAN_PRESETS.keys()),
-        index=0,  # Custom is default
+        index=list(_MEAN_PRESETS.keys()).index("Linear"),
         help="Choose a common functional form, or select Custom to write your own.",
         key="mean_preset",
         on_change=_on_mean_preset_change,
     )
     # When a preset is chosen, pre-fill the equation; Custom is editable
     equation_input = st.text_input(
-        "✏️ **Equation**",
+        "**Equation**",
         placeholder="e.g.  y = a + b*x",
         help="Type any equation of the form  y = f(x).  "
              "Letters other than x become parameters to estimate.",
@@ -180,16 +208,16 @@ with col_mean:
 with col_var:
     st.subheader("Variance model")
     var_preset = st.selectbox(
-        "📐 **Preset**",
+        "**Preset**",
         list(_VARIANCE_PRESETS.keys()),
-        index=0,  # Custom is default
+        index=list(_VARIANCE_PRESETS.keys()).index("Constant"),
         help="Choose how measurement noise scales with the predicted mean, "
              "or select Custom to write your own.",
         key="var_preset",
         on_change=_on_var_preset_change,
     )
     variance_eq_input = st.text_input(
-        "✏️ **Variance equation**  (`sd = g(mu, sigma, ...)`)",
+        "**Variance equation**  (`sd = g(mu, sigma, ...)`)",
         placeholder="e.g.  sd = sigma",
         help="Write the noise standard deviation as a function of mu "
              "(predicted mean) and sigma (base noise scale). Any other "
@@ -197,6 +225,7 @@ with col_var:
              "in square brackets (e.g. [A]) to make it a prescribed constant.",
         key="var_eq_input",
     )
+    st.caption("`mu` = the predicted mean of the calibration model at each data point. `x` is also available.")
 
 # --- Live parse & LaTeX preview (side-by-side) ----------------------------
 eq_model: Optional[EquationModel] = None
@@ -207,13 +236,13 @@ if equation_input.strip():
     try:
         eq_model = EquationModel(equation_input)
     except (ValueError, Exception) as exc:
-        st.error(f"❌ Mean model error: {exc}")
+        st.error(f"Mean model error: {exc}")
 
 if variance_eq_input.strip():
     try:
         var_model = VarianceModel(variance_eq_input)
     except (ValueError, Exception) as exc:
-        st.error(f"❌ Variance model error: {exc}")
+        st.error(f"Variance model error: {exc}")
 
 if eq_model is not None:
     col_mean_preview, col_var_preview = st.columns(2)
@@ -225,14 +254,6 @@ if eq_model is not None:
             all_param_names += var_model.param_names
         param_str = ", ".join([f"**{p}**" for p in all_param_names])
         st.markdown(f"Parameters to estimate: {param_str}")
-        if eq_model.has_symbolic_inverse:
-            st.markdown("✅ **Symbolic inverse found:**")
-            st.latex(eq_model.inverse_latex_str())
-        else:
-            st.markdown(
-                "⚠️ No closed-form inverse — will use **numerical root-finding** "
-                "(works fine, just slower for large datasets)."
-            )
 
     with col_var_preview:
         if var_model is not None:
@@ -254,6 +275,49 @@ if eq_model is not None:
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — Calibration Data
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ── Callbacks for example / clear buttons ────────────────────────────────────
+def _load_example1():
+    st.session_state["mean_eq_input"] = _MEAN_PRESETS["Linear"]
+    st.session_state["mean_preset"] = "Linear"
+    st.session_state["var_eq_input"] = _VARIANCE_PRESETS["Constant"]
+    st.session_state["var_preset"] = "Constant"
+    st.session_state["cal_x_text"] = _EX1_X_STR
+    st.session_state["cal_y_text"] = _EX1_Y_STR
+    st.session_state["new_y_text"] = _EX1_Y_NEW_STR
+
+def _load_example2():
+    st.session_state["mean_eq_input"] = _MEAN_PRESETS["Custom"]
+    st.session_state["mean_preset"] = "Custom"
+    st.session_state["var_eq_input"] = _VARIANCE_PRESETS["Custom"]
+    st.session_state["var_preset"] = "Custom"
+    st.session_state["cal_x_text"] = _DEFAULT_X
+    st.session_state["cal_y_text"] = _DEFAULT_Y
+    st.session_state["new_y_text"] = _DEFAULT_Y_NEW
+
+def _clear_all():
+    st.session_state["mean_eq_input"] = _MEAN_PRESETS["Linear"]
+    st.session_state["mean_preset"] = "Linear"
+    st.session_state["var_eq_input"] = _VARIANCE_PRESETS["Constant"]
+    st.session_state["var_preset"] = "Constant"
+    st.session_state["cal_x_text"] = ""
+    st.session_state["cal_y_text"] = ""
+    st.session_state["new_y_text"] = ""
+
+_btn_col1, _btn_col2, _btn_col3 = st.columns(3)
+with _btn_col1:
+    st.button("Example 1 — linear data", on_click=_load_example1,
+              use_container_width=True,
+              help="Load synthetic linear calibration data (y = 10 + 5x + noise)")
+with _btn_col2:
+    st.button("Example 2 — Gelman 2004 ELISA", on_click=_load_example2,
+              use_container_width=True,
+              help="Load the cockroach allergen ELISA data from Gelman et al. (2004)")
+with _btn_col3:
+    st.button("Clear all / enter my own data", on_click=_clear_all,
+              use_container_width=True,
+              help="Reset all fields and start fresh")
+
 st.header("Calibration Data")
 st.markdown("Provide paired **(X, Y)** calibration measurements.")
 
@@ -283,9 +347,9 @@ else:
     st.markdown("Enter X and Y values (one per line, same length):")
     col1, col2 = st.columns(2)
     with col1:
-        x_text = st.text_area("X values", value=_DEFAULT_X, height=200)
+        x_text = st.text_area("X values", height=200, key="cal_x_text")
     with col2:
-        y_text = st.text_area("Y values", value=_DEFAULT_Y, height=200)
+        y_text = st.text_area("Y values", height=200, key="cal_y_text")
     try:
         x_vals = [float(v) for v in x_text.strip().split("\n") if v.strip()]
         y_vals = [float(v) for v in y_text.strip().split("\n") if v.strip()]
@@ -348,7 +412,6 @@ if new_y_method == "Upload CSV":
 else:
     y_new_text = st.text_area(
         "Y values (one per line)",
-        value=_DEFAULT_Y_NEW,
         height=150,
         key="new_y_text",
     )
@@ -466,7 +529,7 @@ def _get_default_prior(param_name: str, param_source: str):
         return "Normal", {"mu": 0.0, "sigma": 100.0}
 
 
-with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
+with st.expander("**Advanced Options** — MCMC settings and priors",
                   expanded=False):
 
     st.markdown("#### MCMC Settings")
@@ -547,7 +610,7 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
             f"{p}  ({_param_sources[p]})" for p in _all_params
         ]
         selected_display = st.selectbox(
-            "🎯 **Parameter to configure**",
+            "**Parameter to configure**",
             _display_names,
             index=0,
             key="prior_param_picker",
@@ -595,7 +658,6 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
                     f"**log-space**. For example, Normal(μ=2.30, σ=1.0) in "
                     f"log-space centres the prior at "
                     f"exp(2.30) ≈ 10 in the original scale.",
-                    icon="ℹ️",
                 )
 
         # When log-scale is ticked, auto-convert the defaults
@@ -715,7 +777,7 @@ else:
                     prescribed_values=prescribed_values,
                 )
             except Exception as exc:
-                st.error(f"\u274c Model build failed: {exc}")
+                st.error(f"Model build failed: {exc}")
                 st.stop()
 
         with st.spinner("Sampling posterior (this may take a moment)..."):
@@ -731,7 +793,7 @@ else:
                         initvals=sample_initvals,
                     )
             except Exception as exc:
-                st.error(f"\u274c MCMC sampling failed: {exc}")
+                st.error(f"MCMC sampling failed: {exc}")
                 st.stop()
 
         # Extract posterior draws
@@ -808,6 +870,14 @@ else:
         st.pyplot(fig_fit)
         plt.close(fig_fit)
 
+        # -- Inverse solve method ------------------------------------------
+        st.subheader("Inverse solve method")
+        if eq_model_r.has_symbolic_inverse:
+            st.success("Symbolic (closed-form) inverse found:")
+            st.latex(eq_model_r.inverse_latex_str())
+        else:
+            st.info("No closed-form inverse — numerical root-finding was used.")
+
         # ══════════════════════════════════════════════════════════════════
         # Residual Diagnostics
         # ══════════════════════════════════════════════════════════════════
@@ -851,6 +921,7 @@ else:
                     np.full_like(mu_j, sigma_draws_arr[idx]),
                     {k: np.full_like(mu_j, v) for k, v in vp_j.items()},
                     prescribed_params=prescribed_values,
+                    x=x_grid_res,
                 )
             else:
                 sd_j = np.full_like(mu_j, sigma_draws_arr[idx])
@@ -883,6 +954,7 @@ else:
                 {k: np.full_like(y_pred, v)
                  for k, v in median_var_params.items()},
                 prescribed_params=prescribed_values,
+                x=x_cal,
             )
         else:
             sd_at_cal = np.full_like(y_pred, median_sigma)
@@ -953,7 +1025,7 @@ else:
         )
         if bp_lm_p < 0.05:
             st.warning(
-                "⚠️ Significant heteroscedasticity remains in the "
+                "Significant heteroscedasticity remains in the "
                 "standardised residuals (*p* < 0.05). The current "
                 "variance model may not fully capture how the noise "
                 "changes with X. Consider a different variance equation, "
@@ -961,14 +1033,14 @@ else:
             )
         else:
             st.success(
-                "✅ No significant heteroscedasticity in the "
+                "No significant heteroscedasticity in the "
                 "standardised residuals (*p* ≥ 0.05). The variance "
                 "model appears adequate."
             )
 
         # -- Guided diagnostic questions -----------------------------------
         st.markdown("---")
-        st.markdown("#### 🔍 Interpreting the residual plots")
+        st.markdown("#### Interpreting the residual plots")
         st.markdown(
             "Use the plots and test results above to check whether your "
             "model is a good fit. Here are some questions to guide you:"
@@ -1098,9 +1170,12 @@ else:
                 # Use the custom variance model to compute per-draw noise sd
                 if stored_var_model is not None:
                     mu_proxy = np.full(n_draws, y_val)
+                    x_proxy = (np.full(n_draws, float(np.median(x_cal)))
+                               if stored_var_model.uses_x else None)
                     sd_i = stored_var_model.sd_numpy(
                         mu_proxy, sigma_draws, var_param_draws,
                         prescribed_params=prescribed_values,
+                        x=x_proxy,
                     )
                     sd_i = np.maximum(sd_i, 1e-12)
                 else:
@@ -1151,6 +1226,52 @@ else:
                 file_name="inverse_predictions.csv",
                 mime="text/csv",
             )
+
+            # -- Calibration fit with inverse-prediction overlay -----------
+            st.subheader("Calibration fit with inverse prediction intervals")
+            from matplotlib.lines import Line2D as _Line2D
+            fig_overlay, ax_ov = plt.subplots(figsize=(9, 5))
+            ax_ov.scatter(x_cal, y_cal, c="black", zorder=5, s=40,
+                          label="Calibration data")
+            for i in np.random.choice(n_total, min(200, n_total), replace=False):
+                p_i = {k: posterior[k][i] for k in eq_model_r.param_names}
+                ax_ov.plot(x_grid, eq_model_r.forward_numpy(p_i, x_grid),
+                           alpha=0.03, color="steelblue")
+            for row in inv_rows:
+                y_val_ov = row["Y_observed"]
+                x_lo_ov = row[f"X_lo ({credible_level:.0%})"]
+                x_hi_ov = row[f"X_hi ({credible_level:.0%})"]
+                x_med_ov = row["X_median"]
+                if np.isfinite(x_lo_ov) and np.isfinite(x_hi_ov):
+                    ax_ov.plot([x_lo_ov, x_hi_ov], [y_val_ov, y_val_ov],
+                               color="red", lw=2)
+                    ax_ov.plot(x_med_ov, y_val_ov, "o", color="red", zorder=6)
+                    if len(inv_rows) <= 6:
+                        ax_ov.annotate(
+                            f"Y={y_val_ov:.3g}",
+                            xy=(x_med_ov, y_val_ov),
+                            xytext=(4, 4), textcoords="offset points",
+                            fontsize=8, color="red",
+                        )
+            ax_ov.set_xlabel("X")
+            ax_ov.set_ylabel("Y")
+            ax_ov.set_title(
+                f"Calibration fit with {credible_level:.0%} credible "
+                f"intervals for X"
+            )
+            ax_ov.legend(handles=[
+                _Line2D([],[], marker='o', color='black', ls='none',
+                        markersize=6, label='Calibration data'),
+                _Line2D([],[], color='steelblue', alpha=0.5,
+                        label='Posterior curves'),
+                _Line2D([],[], color='red', lw=2,
+                        label=f'{credible_level:.0%} CI for X'),
+                _Line2D([],[], marker='o', color='red', ls='none',
+                        markersize=6, label='X median'),
+            ])
+            fig_overlay.tight_layout()
+            st.pyplot(fig_overlay)
+            plt.close(fig_overlay)
 
             # -- Posterior histograms --------------------------------------
             st.subheader("Posterior Distributions of X")
