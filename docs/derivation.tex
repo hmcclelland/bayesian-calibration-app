@@ -32,6 +32,7 @@
 \newcommand{\xcal}{\bm{x}^{\mathrm{cal}}}
 \newcommand{\ycal}{\bm{y}^{\mathrm{cal}}}
 \newcommand{\thetab}{\bm{\theta}}
+\newcommand{\phib}{\bm{\phi}}
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\E}{\mathbb{E}}
 \newcommand{\Var}{\mathrm{Var}}
@@ -80,8 +81,11 @@ but rely on asymptotic normality, struggle with nonlinear models, and do not
 fully propagate parameter uncertainty.  A Bayesian treatment resolves these
 limitations naturally: we obtain the full joint posterior of the model
 parameters, then push every source of uncertainty---parameter estimation
-\emph{and} measurement noise---through the inverse to get a complete
-distribution over the unknown concentration.
+\emph{and} measurement noise---through the inverse to obtain a complete
+distribution over the unknown value.  \citet{gelman2004} demonstrate this
+approach for immunoassay serial dilution data; the method implemented here
+generalises it to arbitrary user-specified calibration functions and variance
+models.
 
 This document derives the method implemented in the accompanying Streamlit
 application.
@@ -101,13 +105,14 @@ application.
     $y_i$ & Measured instrument response for point $i$ \\
     $\xcal = (x_1,\dots,x_n)^\top$ & Calibration $x$-values \\
     $\ycal = (y_1,\dots,y_n)^\top$ & Calibration $y$-values \\
-    $f(x;\,\thetab)$ & User-specified calibration function \\
-    $\thetab = (\theta_1,\dots,\theta_p)^\top$ & Model parameters \\
+    $f(x;\,\thetab)$ & User-specified calibration (mean) function \\
+    $\thetab = (\theta_1,\dots,\theta_p)^\top$ & Mean model parameters \\
     $\sigma_y$ & Baseline noise standard deviation \\
-    $\alpha$ & Heteroscedasticity exponent ($\alpha=0$: constant variance) \\
-    $A$ & Scaling constant (geometric mean of calibration $y$-values) \\
+    $g(\mu,\,\sigma_y;\,\phib)$ & User-specified noise standard deviation function \\
+    $\phib$ & Additional variance model parameters (may be empty) \\
     $y^{*}$ & New observed response \\
     $x^{*}$ & Unknown value to be estimated \\
+    $\alpha$ & Tail probability for credible intervals ($\alpha = 0.025$ for 95\% CI) \\
     \bottomrule
 \end{tabular}
 \end{center}
@@ -129,8 +134,9 @@ $x$ and~$\thetab$.
 \end{assumption}
 
 \begin{assumption}[Gaussian noise]\label{ass:noise}
-Each observation is the true calibration value plus independent Gaussian noise.
-In the simplest (homoscedastic) case the noise has constant variance:
+Each observation equals the true mean response plus independent Gaussian noise.
+In the simplest (homoscedastic) case the noise has constant standard
+deviation~$\sigma_y$:
 \begin{equation}\label{eq:obs-model}
     y_i \;=\; f(x_i;\,\thetab) \;+\; \varepsilon_i,
     \qquad
@@ -171,65 +177,63 @@ $\bm{\mu} = \bigl(f(x_1;\thetab),\dots,f(x_n;\thetab)\bigr)^\top$,
 \label{sec:hetero}
 % =============================================================================
 
-In many assays---particularly immunoassays and serial dilution experiments---the
-measurement variance is not constant but increases with the signal level.
-Following \citet{gelman2004}, the application offers an optional
-heteroscedastic variance model that replaces the constant-variance assumption
-(\Cref{ass:noise}) with a power-law relationship between the variance and the
-predicted mean.
-
-\subsection{Variance Model}
-
-Let $\mu_i = f(x_i;\,\thetab)$ denote the predicted mean response at
-observation~$i$.  The heteroscedastic model is
-\begin{equation}\label{eq:hetero}
-    \boxed{\;
-    y_i \;\sim\; \N\!\biggl[\,\mu_i,\;\;
-        \left(\frac{\mu_i}{A}\right)^{\!2\alpha}\!\sigma_y^{2}\;\biggr],
+In many assays the measurement noise is not constant but varies systematically
+with the signal level.  The application allows the user to replace the
+constant-variance assumption (\Cref{ass:noise}) with any symbolic variance
+equation of the form
+\begin{equation}\label{eq:var-generic}
+    \sigma_i \;=\; g\!\bigl(\mu_i,\,\sigma_y;\,\phib\bigr),
+\end{equation}
+where $\mu_i = f(x_i;\,\thetab)$ is the predicted mean at observation~$i$,
+$\sigma_y > 0$ is a baseline noise scale, and $\phib$ is a (possibly empty)
+vector of additional variance parameters.  The observation model becomes
+\begin{equation}\label{eq:obs-hetero}
+    y_i \;\sim\; \N\!\bigl(\mu_i,\;\sigma_i^{2}\bigr),
+    \qquad
+    \sigma_i = g(\mu_i,\,\sigma_y;\,\phib),
     \qquad i = 1,\dots,n,
-    \;}
 \end{equation}
-where:
-\begin{itemize}[nosep]
-    \item $A$ is a scaling constant set to the geometric mean of the observed
-          calibration responses,
-          $A = \exp\!\bigl(\tfrac{1}{n}\sum_{i=1}^{n}\log y_i\bigr)$.
-          Its role is to make $\sigma_y$ interpretable as the noise standard
-          deviation at a ``typical'' measurement level.
-    \item $\alpha \ge 0$ controls how variance scales with the mean:
-    \begin{itemize}[nosep]
-        \item $\alpha = 0$: constant variance (reduces to the homoscedastic
-              model).
-        \item $\alpha = 1$: variance proportional to~$\mu_i^{2}$, i.e.\
-              approximately constant coefficient of variation (CV).
-        \item $\alpha \in (0,2)$: intermediate and super-proportional
-              variance structures.
-    \end{itemize}
-\end{itemize}
-
-\noindent
-The observation-specific standard deviation is therefore
-\begin{equation}\label{eq:sd-hetero}
-    \sigma_i \;=\; \left|\frac{\mu_i}{A}\right|^{\!\alpha}\,\sigma_y\,,
-\end{equation}
-and the heteroscedastic likelihood becomes
+and the heteroscedastic likelihood is
 \begin{equation}\label{eq:lik-hetero}
-    p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\alpha)
+    p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\phib)
     \;=\; \prod_{i=1}^{n}
         \frac{1}{\sqrt{2\pi}\,\sigma_i}\,
         \exp\!\biggl[-\frac{(y_i - \mu_i)^{2}}{2\,\sigma_i^{2}}\biggr].
 \end{equation}
 
-\subsection{Prior on \texorpdfstring{$\alpha$}{alpha}}
+\subsection{Built-in Variance Functions}
 
-We assign $\alpha$ a uniform prior on $[0,2]$:
-\begin{equation}\label{eq:prior-alpha}
-    \alpha \;\sim\; \mathrm{Uniform}(0,\,2).
+The application provides three preset choices and a free-form custom entry:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{lll}
+    \toprule
+    Name & $g(\mu_i,\,\sigma_y;\,\phib)$ & Notes \\
+    \midrule
+    Constant & $\sigma_y$ & Homoscedastic; $\phib = \varnothing$ \\[2pt]
+    Proportional to mean & $\mu_i\,\sigma_y$ & Constant coefficient of variation (CV) \\[2pt]
+    Power-law & $\bigl|\mu_i/A\bigr|^{\gamma}\,\sigma_y$
+        & $A$: geometric mean of $\ycal$;\; $\phib = \{\gamma\}$ \\
+    \bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+In the power-law model, $\gamma \ge 0$ controls how the noise scales with the
+mean ($\gamma=0$: constant variance; $\gamma=1$: constant CV; $\gamma>1$:
+super-proportional variance), and $A =
+\exp\!\bigl(\tfrac{1}{n}\sum_{i=1}^{n}\log y_i\bigr)$ is a fixed scaling
+constant that makes $\sigma_y$ interpretable as the noise standard deviation at
+a typical measurement level.  \citet{gelman2004} used this power-law form to
+model serial dilution immunoassay data; it subsumes the constant and
+proportional presets as special cases.  For the power-law model we assign
+$\gamma$ a uniform prior on $[0,2]$:
+\begin{equation}\label{eq:prior-gamma}
+    \gamma \;\sim\; \mathrm{Uniform}(0,\,2).
 \end{equation}
-This range is centred at proportionality ($\alpha=1$) and is wide enough to
-accommodate the constant-variance special case ($\alpha\approx 0$) as well as
-super-proportional variance.  The data determine the posterior for~$\alpha$;
-when constant variance is adequate, the posterior will concentrate near zero.
+More generally, priors on~$\phib$ are specified by the user in the same way as
+priors on~$\thetab$ (see \Cref{sec:priors}).
 
 % =============================================================================
 \section{Prior Distributions}
@@ -250,8 +254,8 @@ i.e.\ a $\N(0,\tau^{2})$ truncated to the positive reals.
 
 \paragraph{Supported prior families.}
 For each parameter the user may select from:
-Normal, Half-Normal, Uniform, or Log-Normal distributions, each with
-user-specified hyperparameters.
+Normal, Half-Normal, Uniform, Log-Normal, Exponential, or Gamma distributions,
+each with user-specified hyperparameters.
 
 \subsection{Log-Scale Parameterisation}
 \label{sec:log-scale}
@@ -279,12 +283,12 @@ via the Advanced Options panel.
 \paragraph{Joint prior.}
 Because the priors are independent,
 \begin{equation}\label{eq:joint-prior}
-    p(\thetab,\,\sigma_y,\,\alpha)
+    p(\thetab,\,\sigma_y,\,\phib)
     \;=\;
-    \biggl[\prod_{j=1}^{p} p(\theta_j)\biggr]\;p(\sigma_y)\;p(\alpha).
+    \biggl[\prod_{j=1}^{p} p(\theta_j)\biggr]\;p(\sigma_y)\;p(\phib).
 \end{equation}
-(When the homoscedastic model is used, the $p(\alpha)$ factor is absent and
-$\alpha$ is not part of the model.)
+When the constant-variance model is used $\phib$ is empty and the last
+factor is absent.
 
 % =============================================================================
 \section{Posterior Distribution}
@@ -294,10 +298,10 @@ $\alpha$ is not part of the model.)
 Applying Bayes' theorem:
 \begin{equation}\label{eq:bayes}
     \boxed{\;
-    p(\thetab,\,\sigma_y,\,\alpha \mid \ycal,\,\xcal)
+    p(\thetab,\,\sigma_y,\,\phib \mid \ycal,\,\xcal)
     \;=\;
-    \frac{p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\alpha)\;\;
-          p(\thetab,\,\sigma_y,\,\alpha)}
+    \frac{p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\phib)\;\;
+          p(\thetab,\,\sigma_y,\,\phib)}
          {p(\ycal \mid \xcal)}
     \;}
 \end{equation}
@@ -305,14 +309,13 @@ where the marginal likelihood (evidence) is
 \begin{equation}
     p(\ycal \mid \xcal)
     \;=\;
-    \int p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\alpha)\;
-         p(\thetab,\,\sigma_y,\,\alpha)
-    \;\mathrm{d}\thetab\;\mathrm{d}\sigma_y\;\mathrm{d}\alpha.
+    \int p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\phib)\;
+         p(\thetab,\,\sigma_y,\,\phib)
+    \;\mathrm{d}\thetab\;\mathrm{d}\sigma_y\;\mathrm{d}\phib.
 \end{equation}
 For most nonlinear calibration functions this integral is analytically
 intractable, so we approximate the posterior using Markov chain Monte Carlo
-sampling.  (When the homoscedastic model is used, $\alpha$ is absent from
-all expressions.)
+sampling.
 
 % =============================================================================
 \section{MCMC Sampling via NUTS}
@@ -322,20 +325,20 @@ all expressions.)
 \subsection{Hamiltonian Monte Carlo}
 
 Hamiltonian Monte Carlo (HMC) \citep{neal2011} augments the parameter space
-with auxiliary momentum variables $\bm{r}\in\R^{d}$ (where $d = p+1$) and
-defines the joint density
+with auxiliary momentum variables $\bm{r}\in\R^{d}$ and defines the joint
+density
 \begin{equation}
-    p(\thetab,\,\sigma,\,\bm{r})
+    p(\thetab,\,\sigma_y,\,\bm{r})
     \;\propto\;
-    \exp\!\bigl[\,-U(\thetab,\sigma)
+    \exp\!\bigl[\,-U(\thetab,\sigma_y)
                  - \tfrac{1}{2}\,\bm{r}^{\top}\mathbf{M}^{-1}\bm{r}\,\bigr],
 \end{equation}
 with \emph{potential energy}
 \begin{equation}
-    U(\thetab,\sigma)
+    U(\thetab,\sigma_y)
     \;=\;
-    -\log p(\ycal \mid \xcal,\,\thetab,\,\sigma)
-    \;-\; \log p(\thetab,\,\sigma)
+    -\log p(\ycal \mid \xcal,\,\thetab,\,\sigma_y,\,\phib)
+    \;-\; \log p(\thetab,\,\sigma_y,\,\phib)
 \end{equation}
 and mass matrix $\mathbf{M}$ (adapted during warm-up to approximate the
 posterior covariance).
@@ -382,7 +385,7 @@ ${\sim}\,0.8$.
           draws are discarded.
     \item \textbf{Sampling.}  $S$~draws are collected from each of
           $C$~independent chains, giving $N = S \times C$ posterior samples
-          $\{(\thetab^{(s)},\,\sigma^{(s)})\}_{s=1}^{N}$.
+          $\{(\thetab^{(s)},\,\sigma_y^{(s)},\,\phib^{(s)})\}_{s=1}^{N}$.
     \item \textbf{Convergence checks.}  The application reports:
     \begin{itemize}[nosep]
         \item $\hat{R}$ (Gelman--Rubin statistic): values $\lesssim 1.01$
@@ -404,25 +407,26 @@ ${\sim}\,0.8$.
 
 Given a new instrument reading $y^{*}$, we want the posterior predictive
 distribution of the unknown value $x^{*}$ that produced it.  We assume the new
-observation arises from the same process as the calibration data.
-
-\paragraph{Homoscedastic case.}
+observation arises from the same process as the calibration data:
 \begin{equation}\label{eq:new-obs}
     y^{*} \;=\; f(x^{*};\,\thetab) \;+\; \varepsilon^{*},
     \qquad
-    \varepsilon^{*} \sim \N(0,\,\sigma_y^{2}).
+    \varepsilon^{*} \;\sim\; \N\!\bigl(0,\,\sigma^{*2}\bigr),
 \end{equation}
-
-\paragraph{Heteroscedastic case.}
-The noise standard deviation at the new point depends on the predicted mean
-$\mu^{*} = f(x^{*};\,\thetab)$, which is unknown.  We approximate it by using
-the observed value~$y^{*}$ as a plug-in for~$\mu^{*}$:
-\begin{equation}\label{eq:new-obs-hetero}
-    \varepsilon^{*} \;\sim\; \N\!\Bigl(0,\;\;
-        \bigl|y^{*}/A\bigr|^{2\alpha}\,\sigma_y^{2}\Bigr).
+where the noise standard deviation is
+\begin{equation}
+    \sigma^{*} \;=\; g\!\bigl(\mu^{*},\,\sigma_y;\,\phib\bigr),
+    \qquad
+    \mu^{*} = f(x^{*};\,\thetab).
 \end{equation}
-This approximation is accurate when $y^{*}$ is close to~$\mu^{*}$ (i.e.\ when
-the signal-to-noise ratio is moderate to high).
+Because $x^{*}$ is unknown, $\mu^{*}$ is also unknown.  We approximate it by
+substituting the observed value~$y^{*}$ as a plug-in for~$\mu^{*}$:
+\begin{equation}\label{eq:sigma-star-approx}
+    \sigma^{*} \;\approx\; g\!\bigl(y^{*},\,\sigma_y;\,\phib\bigr).
+\end{equation}
+This approximation is accurate when the signal-to-noise ratio is moderate to
+high (i.e.\ $y^{*} \approx \mu^{*}$).  In the constant-variance case
+$g = \sigma_y$ and no approximation is needed.
 
 \subsection{Posterior Predictive Distribution of \texorpdfstring{$x^{*}$}{x*}}
 
@@ -431,22 +435,21 @@ The target distribution is obtained by marginalising over the posterior:
     \boxed{\;
     p(x^{*} \mid y^{*},\,\ycal,\,\xcal)
     \;=\;
-    \int p(x^{*} \mid y^{*},\,\thetab,\,\sigma_y,\,\alpha)\;\;
-         p(\thetab,\,\sigma_y,\,\alpha \mid \ycal,\,\xcal)
-    \;\mathrm{d}\thetab\;\mathrm{d}\sigma_y\;\mathrm{d}\alpha
+    \int p(x^{*} \mid y^{*},\,\thetab,\,\sigma_y,\,\phib)\;\;
+         p(\thetab,\,\sigma_y,\,\phib \mid \ycal,\,\xcal)
+    \;\mathrm{d}\thetab\;\mathrm{d}\sigma_y\;\mathrm{d}\phib
     \;}
 \end{equation}
 This integral propagates \emph{both} parameter uncertainty and measurement
 noise into the prediction.  We evaluate it by Monte Carlo:
 
 \begin{proposition}[Monte Carlo inverse prediction]\label{prop:mc}
-For each posterior draw $(\thetab^{(s)},\,\sigma_y^{(s)},\,\alpha^{(s)})$,
-$s=1,\dots,N$:
+For each posterior draw
+$(\thetab^{(s)},\,\sigma_y^{(s)},\,\phib^{(s)})$, $s=1,\dots,N$:
 \begin{enumerate}[nosep]
     \item \textbf{Compute noise scale:}\;
-          $\sigma^{*(s)} = \bigl|y^{*}/A\bigr|^{\alpha^{(s)}}\,\sigma_y^{(s)}$
-          \;\;(or simply $\sigma^{*(s)} = \sigma_y^{(s)}$ in the homoscedastic
-          case).
+          $\sigma^{*(s)} = g\!\bigl(y^{*},\,\sigma_y^{(s)};\,\phib^{(s)}\bigr)$
+          \;\;(using the plug-in approximation~\eqref{eq:sigma-star-approx}).
     \item \textbf{Add noise:}\;
           $\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$\;
           where\; $\epsilon^{(s)} \sim \N(0,\,\sigma^{*(s)2})$.
@@ -458,14 +461,17 @@ $p(x^{*} \mid y^{*},\,\ycal,\,\xcal)$.
 \end{proposition}
 
 \begin{proof}
-For fixed $(\thetab,\sigma_y,\alpha)$ the forward model is deterministic, so
-$x^{*} = f^{-1}(y^{*} - \varepsilon^{*};\,\thetab)$ with
-$\varepsilon^{*}\sim\N(0,\sigma^{*2})$.  Drawing
-$\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$ where
-$\epsilon^{(s)}\sim\N(0,\sigma^{*(s)2})$ is equivalent to sampling the
-noise-free response from the predictive distribution at draw~$s$.
-Since the draws $(\thetab^{(s)},\sigma_y^{(s)},\alpha^{(s)})$ come from the
-posterior $p(\thetab,\sigma_y,\alpha\mid\ycal,\xcal)$, the composition produces
+Fix a posterior draw $(\thetab,\sigma_y,\phib)$.  By the observation
+model~\eqref{eq:new-obs}, the unknown satisfies
+$x^{*} = f^{-1}(y^{*} - \varepsilon^{*};\,\thetab)$ where
+$\varepsilon^{*}\sim\N(0,\sigma^{*2})$.  Because the Gaussian distribution is
+symmetric, $-\varepsilon^{*}\overset{d}{=}\varepsilon^{*}$, so drawing
+$\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$ with
+$\epsilon^{(s)}\sim\N(0,\sigma^{*(s)2})$ and setting
+$x^{*(s)} = f^{-1}(\tilde{y}^{(s)};\,\thetab^{(s)})$ is equivalent in
+distribution to sampling $x^{*} = f^{-1}(y^{*} - \varepsilon^{*};\,\thetab)$.
+Since the draws come from the posterior
+$p(\thetab,\sigma_y,\phib\mid\ycal,\xcal)$, the composition produces
 samples from the marginal~\eqref{eq:ppd}.
 \end{proof}
 
@@ -487,18 +493,21 @@ over the interval
 $\bigl[x_{\min} - 3\,\Delta x,\;\; x_{\max} + 3\,\Delta x\bigr]$
 where $\Delta x = x_{\max} - x_{\min}$.
 Brent's method combines bisection, secant, and inverse quadratic
-interpolation, guaranteeing convergence whenever a sign change exists.
+interpolation, guaranteeing convergence whenever a sign change exists in the
+search interval.
 
 \subsection{Credible Intervals and Point Estimates}
 
 From the $N$ draws $\{x^{*(s)}\}$ (after discarding any non-finite values from
-failed inversions), the $100(1-\alpha)\%$ equal-tailed credible interval is
+failed inversions), the $100(1-2\alpha)\%$ equal-tailed credible interval is
 \begin{equation}
-    \mathrm{CI}_{1-\alpha}
+    \mathrm{CI}_{1-2\alpha}
     \;=\;
-    \bigl[\,Q_{\alpha/2},\;\; Q_{1-\alpha/2}\,\bigr],
+    \bigl[\,Q_{\alpha},\;\; Q_{1-\alpha}\,\bigr],
 \end{equation}
-where $Q_{q}$ is the $q$-th sample quantile.  The application also reports:
+where $Q_{q}$ denotes the $q$-th sample quantile and $\alpha$ is the tail
+probability (e.g.\ $\alpha = 0.025$ for a 95\% interval).  The application
+also reports:
 \begin{align}
     \hat{x}_{\mathrm{median}} &= Q_{0.5}, \\[2pt]
     \hat{x}_{\mathrm{mean}}
@@ -519,64 +528,67 @@ user assess whether the chosen equation and the noise assumptions are adequate.
 \subsection{Residuals}
 
 Residuals are evaluated at the posterior median parameters
-$\hat{\thetab} = \mathrm{median}\{\thetab^{(s)}\}$:
+$\hat{\thetab} = \mathrm{median}\{\thetab^{(s)}\}$ and posterior median
+variance parameters $\hat{\phib}$:
 \begin{equation}
     e_i \;=\; y_i \;-\; f(x_i;\,\hat{\thetab}),
     \qquad i = 1,\dots,n.
 \end{equation}
-Two plots are shown: residuals versus fitted values~$\hat{y}_i$ and residuals
-versus~$x_i$.
+Standardised residuals are obtained by dividing by the model-predicted noise
+standard deviation at each point:
+\begin{equation}
+    r_i \;=\; \frac{e_i}{\hat{\sigma}_i},
+    \qquad
+    \hat{\sigma}_i = g(\hat{\mu}_i,\,\hat{\sigma}_y;\,\hat{\phib}),
+    \qquad
+    \hat{\mu}_i = f(x_i;\,\hat{\thetab}).
+\end{equation}
+Two plots are shown: raw residuals $e_i$ versus~$x_i$ (with posterior
+prediction intervals) and standardised residuals $r_i$ versus~$x_i$.  If the
+variance model is adequate, the standardised residuals should scatter randomly
+around zero with roughly constant spread.
 
 \subsection{Breusch--Pagan Test}
 
-The Breusch--Pagan test \citep{breusch1979} checks whether the variance of
-the residuals depends on the fitted values:
+The Breusch--Pagan test \citep{breusch1979} checks whether the
+\emph{standardised} residuals~$r_i$ still exhibit variance that depends
+on~$x_i$, i.e.\ whether the chosen variance model has successfully removed
+the heteroscedasticity:
 \begin{equation}
-    H_0:\;\Var(\varepsilon_i) = \sigma^{2}\;\;\forall\,i
+    H_0:\;\Var(r_i) = \mathrm{const}\;\;\forall\,i
     \qquad\text{vs.}\qquad
-    H_1:\;\Var(\varepsilon_i) = h(\bm{z}_i^{\top}\bm{\gamma}).
+    H_1:\;\Var(r_i) = h(\gamma_0 + \gamma_1\,x_i).
 \end{equation}
-The procedure regresses the squared residuals $e_i^{2}$ on the fitted
-values by OLS and computes the LM statistic
-$\mathrm{LM} = \tfrac{1}{2}\,\mathrm{ESS}$, which follows a $\chi^{2}_{1}$
-distribution under $H_0$.  A $p$-value below 0.05 indicates that the noise
-spread changes with signal level.  In that case, the application advises
-applying a variance-stabilising transformation (e.g.\
-$\log y$ or $\sqrt{y}$) before re-fitting.
-
-\subsection{Wald--Wolfowitz Runs Test}
-
-The runs test \citep{wald1940} assesses whether the sign pattern of the
-residuals ($+$/$-$) is random.
-Let $n_{+}$ and $n_{-}$ be the counts of positive and negative residuals, and
-$R$ the number of runs.  Under $H_0$ (random ordering):
-\begin{align}
-    \E[R]
-        &= 1 + \frac{2\,n_{+}\,n_{-}}{n_{+}+n_{-}}\,,
-    \\[4pt]
-    \Var(R)
-        &= \frac{2\,n_{+}\,n_{-}\,(2\,n_{+}\,n_{-} - n_{+} - n_{-})}
-               {(n_{+}+n_{-})^{2}\,(n_{+}+n_{-}-1)}\,.
-\end{align}
-The standardised statistic $Z = (R - \E[R])/\!\sqrt{\Var(R)}$ is approximately
-standard normal.  A $p$-value below 0.05 suggests systematic structure that the
-model does not capture; the user should consider a different functional form.
+The procedure regresses $r_i^{2}$ on a constant and $x_i$ by OLS.  The LM
+statistic is
+\begin{equation}
+    \mathrm{LM} \;=\; n\,R^{2},
+\end{equation}
+where $R^{2}$ is the coefficient of determination of the auxiliary regression.
+Under $H_0$, $\mathrm{LM} \sim \chi^{2}_{1}$ asymptotically.  A $p$-value
+below 0.05 indicates that residual spread still varies with~$x_i$; this
+suggests a more flexible variance model may be needed, or that a
+variance-stabilising transformation (e.g.\ $\log y$ or $\sqrt{y}$) should be
+applied before fitting.
 
 \subsection{Practical Guidance}
 
 Based on the diagnostics the application presents the following advice:
 \begin{itemize}[nosep]
-    \item \textbf{Curved / trending residuals:} try a different model (e.g.\
-          add a polynomial term, switch to an exponential or power law).
-    \item \textbf{Fan-shaped spread:} enable the \textbf{heteroscedastic
-          variance model} in Advanced Options, which lets the model learn how
-          noise scales with the mean response.  Alternatively, try a
-          variance-stabilising transformation such as $\log(y)$ or $\sqrt{y}$
-          before fitting.
-    \item \textbf{Isolated outliers:} check for data-entry errors; consider
-          excluding the suspect point and re-fitting.
-    \item \textbf{Random scatter around zero:} the model assumptions appear
-          satisfied.
+    \item \textbf{Curved or trending residuals:} try a different model (e.g.\
+          add a polynomial term, switch to an exponential or sigmoid function).
+          The chosen functional form does not adequately capture the
+          calibration relationship.
+    \item \textbf{Fan-shaped spread in raw residuals:} enable or revise the
+          \textbf{variance model} to let the model learn how noise scales with
+          the mean response.  Alternatively, apply a variance-stabilising
+          transformation such as $\log(y)$ or $\sqrt{y}$ before fitting.
+    \item \textbf{Significant Breusch--Pagan test ($p < 0.05$) on standardised
+          residuals:} the current variance model does not fully capture the
+          heteroscedasticity; consider a different variance equation.
+    \item \textbf{Random scatter around zero with non-significant test:} the
+          model assumptions appear satisfied and inverse predictions can be
+          trusted.
 \end{itemize}
 
 % =============================================================================
@@ -588,9 +600,9 @@ Based on the diagnostics the application presents the following advice:
     \item The user-specified function $f(x;\thetab)$ adequately describes the
           calibration relationship
           (\Cref{ass:func}).
-    \item Observation noise is additive and Gaussian, with either constant
-          variance~$\sigma_y^{2}$ or signal-dependent variance
-          $(\mu_i/A)^{2\alpha}\sigma_y^{2}$
+    \item Observation noise is additive and Gaussian, with standard deviation
+          given by the user-specified function
+          $\sigma_i = g(\mu_i,\,\sigma_y;\,\phib)$
           (\Cref{ass:noise}, \Cref{sec:hetero}).
     \item The log-posterior is differentiable with respect to all continuous
           parameters
@@ -604,16 +616,19 @@ Based on the diagnostics the application presents the following advice:
 
 \paragraph{When assumptions may be violated.}
 \begin{itemize}[nosep]
-    \item \emph{Wrong functional form.}  The runs test will flag non-random
-          residual patterns; try a different equation.
-    \item \emph{Non-constant variance.}  The Breusch--Pagan test will flag
-          this; enable the heteroscedastic variance model or apply a
-          variance-stabilising transform (e.g.\ $\log y$) and re-fit.
+    \item \emph{Wrong functional form.}  Curved or systematic residuals
+          suggest the model does not capture the true relationship; try a
+          different equation.
+    \item \emph{Inadequate variance model.}  The Breusch--Pagan test will flag
+          remaining heteroscedasticity in the standardised residuals; revise
+          the variance equation or apply a variance-stabilising transform
+          (e.g.\ $\log y$) and re-fit.
     \item \emph{Non-Gaussian noise.}  Heavy tails may cause credible intervals
-          to undercover.  A Student-$t$ likelihood could be added in future.
-    \item \emph{Correlated observations.}  If measurements are time-dependent,
-          the independence assumption is violated and intervals will be too
-          narrow.
+          to undercover.  A Student-$t$ likelihood could be added in future
+          work.
+    \item \emph{Correlated observations.}  If measurements are
+          time-dependent or spatially structured, the independence assumption
+          is violated and intervals will be too narrow.
 \end{itemize}
 
 % =============================================================================
@@ -623,14 +638,16 @@ Based on the diagnostics the application presents the following advice:
 
 \begin{itemize}[nosep]
     \item \textbf{Equation parsing:} SymPy with implicit multiplication and
-          \texttt{convert\_xor} transformations.
+          \texttt{convert\_xor} transformations.  Both the mean function
+          $f(x;\thetab)$ and the variance function $g(\mu,\sigma_y;\phib)$
+          are parsed symbolically, enabling automatic inversion and
+          differentiation.
     \item \textbf{Automatic differentiation:} PyTensor provides exact
           gradients for the NUTS sampler.
     \item \textbf{Sampling:} PyMC\,$\ge$\,5.10 with the default NUTS
           implementation.
     \item \textbf{Diagnostics:} ArviZ for convergence statistics; statsmodels
-          for the Breusch--Pagan test; the Wald--Wolfowitz test is implemented
-          directly using SciPy.
+          for the Breusch--Pagan test.
     \item \textbf{Numerical inversion:} SciPy's \texttt{brentq} with
           tolerance~$10^{-10}$.
 \end{itemize}
@@ -682,11 +699,6 @@ Y.~Nesterov.
 J.~Salvatier, T.~V. Wiecki, and C.~Fonnesbeck.
 \newblock Probabilistic programming in {Python} using {PyMC3}.
 \newblock \emph{PeerJ Computer Science}, 2:e55, 2016.
-
-\bibitem[Wald and Wolfowitz(1940)]{wald1940}
-A.~Wald and J.~Wolfowitz.
-\newblock On a test whether two samples are from the same population.
-\newblock \emph{The Annals of Mathematical Statistics}, 11(2):147--162, 1940.
 
 \end{thebibliography}
 

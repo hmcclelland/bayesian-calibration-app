@@ -51,7 +51,7 @@ _MEAN_PRESETS = {
 
 # ── Variance model presets ────────────────────────────────────────────────────
 _VARIANCE_PRESETS = {
-    "Custom": "sd = (mu / [A])**alpha * sigma",
+    "Custom": "sd = (mu / [A])**gamma * sigma",
     "Constant": "sd = sigma",
     "Proportional to mean (constant CV)": "sd = mu * sigma",
 }
