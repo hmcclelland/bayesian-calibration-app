@@ -442,17 +442,6 @@ _DEFAULT_PRIOR_MAP = {
     "sigma": ("HalfNormal", {"sigma": 10.0}),
 }
 
-# ── Compute data-informed priors when both equation and data are available ─
-_data_informed_priors: Dict = {}
-if eq_model is not None and cal_df is not None:
-    try:
-        _data_informed_priors = eq_model.compute_data_informed_priors(
-            cal_df["X"].values.astype(float),
-            cal_df["Y"].values.astype(float),
-        )
-    except Exception:
-        _data_informed_priors = {}
-
 # ── Compute default prescribed values when data is available ──────────────
 _prescribed_defaults: Dict[str, float] = {}
 if var_model is not None and cal_df is not None:
@@ -463,16 +452,10 @@ if var_model is not None and cal_df is not None:
 
 
 def _get_default_prior(param_name: str, param_source: str):
-    """Return (dist_name, params_dict) using data-informed priors when
-    available, otherwise sensible generic defaults."""
-    if param_name in _data_informed_priors:
-        cfg = _data_informed_priors[param_name]
-        dist = cfg.get("dist", "Normal")
-        params = {k: v for k, v in cfg.items() if k != "dist"}
-        return dist, params
+    """Return (dist_name, params_dict) — simple, non-data-informed defaults."""
     # Fallback generic defaults
     if param_name == "sigma":
-        # Default: Uniform(0, 50) — wide but bounded
+        # Default: Uniform(0, 50) — wide positive (uniform) prior
         return "Uniform", {"lower": 0.0, "upper": 50.0}
     elif param_name == "alpha":
         return "Uniform", {"lower": 0.0, "upper": 2.0}
@@ -615,8 +598,8 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
                     icon="ℹ️",
                 )
 
-        # When log-scale is ticked, auto-convert the data-informed
-        # defaults from original space → log-space so the user sees
+        # When log-scale is ticked, auto-convert the defaults
+        # from original space → log-space so the user sees
         # sensible starting values without manual calculation.
         if use_log:
             _log_dist = "Normal"
@@ -626,15 +609,9 @@ with st.expander("⚙️ **Advanced Options** — MCMC settings and priors",
                 _log_mu = round(float(np.log(_orig_mu)), 4)
                 _log_sigma = round(max(_orig_sigma / _orig_mu, 0.5), 2)
             else:
-                # Fallback: use LS estimate if available
-                _ls_vals = _data_informed_priors.get(selected_param, {})
-                _ls_mu = _ls_vals.get("mu", 1.0)
-                if _ls_mu > 0:
-                    _log_mu = round(float(np.log(_ls_mu)), 4)
-                    _log_sigma = 2.0
-                else:
-                    _log_mu = 0.0
-                    _log_sigma = 3.0
+                # Fallback: vague Normal on log-space
+                _log_mu = 0.0
+                _log_sigma = 3.0
             _def_dist = _log_dist
             _def_params = {"mu": _log_mu, "sigma": _log_sigma}
 
@@ -949,6 +926,9 @@ else:
             st.pyplot(fig_rb)
             plt.close(fig_rb)
 
+        # -- Breusch–Pagan test on the STANDARDISED residuals --------------
+        #    (tests whether the variance model has successfully removed
+        #     heteroscedasticity)
         # -- Breusch–Pagan test on the STANDARDISED residuals --------------
         #    (tests whether the variance model has successfully removed
         #     heteroscedasticity)

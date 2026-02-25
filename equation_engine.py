@@ -481,7 +481,7 @@ class EquationModel:
                             sample_initvals[f"log_{p_name}"] = float(np.log(val))
                 else:
                     if not cfg:
-                        cfg = {"dist": "Normal", "mu": 0, "sigma": 10}
+                        cfg = {"dist": "Normal", "mu": 0, "sigma": 100}
                     param_vars[p_name] = _make_prior(p_name, cfg, pm)
 
                     # Set initval for regular param
@@ -492,7 +492,7 @@ class EquationModel:
 
             # Noise scale σ
             sigma_cfg = prior_config.get(
-                "sigma", {"dist": "HalfNormal", "sigma": 10})
+                "sigma", {"dist": "Uniform", "lower": 0.0, "upper": 50.0})
             sigma = _make_prior("sigma", sigma_cfg, pm)
 
             # Set initval for sigma from LS residuals
