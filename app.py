@@ -899,11 +899,11 @@ else:
         n_env = min(500, n_total_res)
         idx_env = np.random.choice(n_total_res, n_env, replace=False)
 
-        # For each posterior draw, compute predicted mean AND predicted sd
-        # at every grid point, then sample a y* to build the full
-        # prediction distribution (mean + noise).
+        # For each posterior draw, compute predicted mean and predicted sd
+        # at every grid point.  Prediction bands are computed analytically
+        # (mean_shift ± k·sd) rather than by MC sampling, so they are smooth.
         mu_grid_draws = np.empty((n_env, len(x_grid_res)))
-        y_grid_draws = np.empty((n_env, len(x_grid_res)))
+        sd_grid_draws = np.empty((n_env, len(x_grid_res)))
         sigma_draws_arr = posterior["sigma"]
 
         # Collect variance-model parameter draws
@@ -931,20 +931,20 @@ else:
                 )
             else:
                 sd_j = np.full_like(mu_j, sigma_draws_arr[idx])
-            sd_j = np.maximum(sd_j, 1e-12)
-            y_grid_draws[j] = mu_j + np.random.randn(len(x_grid_res)) * sd_j
+            sd_grid_draws[j] = np.maximum(sd_j, 1e-12)
 
         # Posterior median of the mean curve (for the "zero" residual line)
         mu_grid_median = np.median(mu_grid_draws, axis=0)
 
-        # Prediction-interval envelopes (relative to the median mean,
-        # so the residual plot shows them centred on zero)
-        resid_grid_draws = y_grid_draws - mu_grid_median[np.newaxis, :]
+        # Smooth prediction bands: for each draw, the ±1σ / ±2σ boundaries
+        # are deterministic smooth functions of x.  Taking percentiles of
+        # these smooth curves across draws gives smooth shaded regions.
+        mean_shift = mu_grid_draws - mu_grid_median[np.newaxis, :]
 
-        pct_1s_lo = np.percentile(resid_grid_draws, 15.87, axis=0)
-        pct_1s_hi = np.percentile(resid_grid_draws, 84.13, axis=0)
-        pct_2s_lo = np.percentile(resid_grid_draws, 2.28, axis=0)
-        pct_2s_hi = np.percentile(resid_grid_draws, 97.72, axis=0)
+        pct_1s_lo = np.percentile(mean_shift - sd_grid_draws,   15.87, axis=0)
+        pct_1s_hi = np.percentile(mean_shift + sd_grid_draws,   84.13, axis=0)
+        pct_2s_lo = np.percentile(mean_shift - 2*sd_grid_draws,  2.28, axis=0)
+        pct_2s_hi = np.percentile(mean_shift + 2*sd_grid_draws, 97.72, axis=0)
 
         # -- Compute observation-level predicted sd at each calibration x
         #    using posterior medians (for standardised residuals) -----------
