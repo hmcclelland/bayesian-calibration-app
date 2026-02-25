@@ -12,38 +12,8 @@ import pathlib
 from typing import Dict, Optional, List
 from equation_engine import EquationModel, VarianceModel
 from app_config import MODE
-try:
-    from app_config import GA_TRACKING_ID
-except ImportError:
-    GA_TRACKING_ID = ""
 
 ALLOW_UPLOAD = (MODE == "local")
-
-# ── Patch Streamlit's index.html to inject GA into the real page <head> ──────
-# st.components.v1.html runs in a sandboxed iframe and is not detected by
-# GA Tag Assistant. Patching index.html places the tag directly in the page.
-if GA_TRACKING_ID:
-    _GA_SNIPPET = (
-        f'<script async '
-        f'src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}">'
-        f'</script>'
-        f'<script>'
-        f'window.dataLayer=window.dataLayer||[];'
-        f'function gtag(){{dataLayer.push(arguments);}}'
-        f"gtag('consent','default',{{"
-        f"'analytics_storage':'denied','ad_storage':'denied'}});"
-        f"gtag('js',new Date());"
-        f"gtag('config','{GA_TRACKING_ID}');"
-        f'</script>'
-    )
-    try:
-        _idx = pathlib.Path(st.__file__).parent / "static" / "index.html"
-        _html = _idx.read_text(encoding="utf-8")
-        if GA_TRACKING_ID not in _html:
-            _html = _html.replace("</head>", _GA_SNIPPET + "</head>", 1)
-            _idx.write_text(_html, encoding="utf-8")
-    except Exception:
-        pass  # silently skip if no write access
 
 # ── Default data from Gelman, Chew & Shnaidman (2004) ────────────────────────
 # Standards from Table 2: cockroach allergen Bla g1 ELISA plate
@@ -107,84 +77,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Google Analytics consent banner + consent-mode update
-# GA tag is already in the page <head> (patched into Streamlit's index.html).
-# Here we show the banner and update gtag consent when the user decides.
-# ══════════════════════════════════════════════════════════════════════════════
-if GA_TRACKING_ID:
-    import streamlit.components.v1 as _components
-
-    if "ga_consent" not in st.session_state:
-        st.session_state["ga_consent"] = None  # None = undecided
-
-    _consent_state = st.session_state["ga_consent"]
-
-    # When consent is granted, update GA (gtag is in the real page head now)
-    if _consent_state is True:
-        _components.html(
-            """
-            <script>
-            if (typeof window.parent.gtag === 'function') {
-                window.parent.gtag('consent', 'update',
-                    {'analytics_storage': 'granted'});
-            }
-            </script>
-            """,
-            height=0,
-        )
-
-    # Show consent banner until the user decides
-    if _consent_state is None:
-        st.markdown(
-            "<div style='background:#f0f2f6;padding:10px 16px;"
-            "border-radius:6px;margin-bottom:8px'>"
-            "This site uses cookies to understand how it is used "
-            "(Google Analytics). No personally identifiable information "
-            "is collected.</div>",
-            unsafe_allow_html=True,
-        )
-        _c1, _c2, _c3 = st.columns([1, 1, 6])
-        with _c1:
-            if st.button("Accept", use_container_width=True,
-                         key="_ga_accept"):
-                st.session_state["ga_consent"] = True
-                st.rerun()
-        with _c2:
-            if st.button("Decline", use_container_width=True,
-                         key="_ga_decline"):
-                st.session_state["ga_consent"] = False
-                st.rerun()
-        # Colour Accept green, Decline red via JS in the parent frame
-        _components.html(
-            """
-            <script>
-            (function recolour() {
-                var btns = window.parent.document.querySelectorAll('button');
-                var found = 0;
-                btns.forEach(function(b) {
-                    var t = b.innerText.trim();
-                    if (t === 'Accept') {
-                        b.style.cssText +=
-                            'background-color:#28a745!important;'
-                            + 'border-color:#28a745!important;'
-                            + 'color:white!important;';
-                        found++;
-                    }
-                    if (t === 'Decline') {
-                        b.style.cssText +=
-                            'background-color:#dc3545!important;'
-                            + 'border-color:#dc3545!important;'
-                            + 'color:white!important;';
-                        found++;
-                    }
-                });
-                if (found < 2) { setTimeout(recolour, 80); }
-            })();
-            </script>
-            """,
-            height=0,
-        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Header + editable description from description.md
