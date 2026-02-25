@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import pathlib
 from typing import Dict, Optional, List
 from equation_engine import EquationModel, VarianceModel
-from app_config import MODE
+from app_config import MODE, GA_TRACKING_ID
 
 ALLOW_UPLOAD = (MODE == "local")
 
@@ -20,7 +20,7 @@ ALLOW_UPLOAD = (MODE == "local")
 _DEFAULT_X = "0.64\n0.64\n0.32\n0.32\n0.16\n0.16\n0.08\n0.08\n0.04\n0.04\n0.02\n0.02\n0.01\n0.01\n0.001\n0.001"
 _DEFAULT_Y = "101.8\n121.4\n105.2\n114.1\n92.7\n93.3\n72.4\n61.1\n57.6\n50.0\n38.5\n35.1\n26.6\n25.0\n14.7\n14.2"
 # Unknown 9 measurements for inverse prediction demo
-_DEFAULT_Y_NEW = "49.6\n43.8\n24.0\n24.1\n17.3\n17.6\n15.6\n17.1"
+_DEFAULT_Y_NEW = "49.6\n43.8\n24.0\n24.1\n17.3\n17.6\n15.6\n17.1\n70\n80\n90"
 
 # ── Example 1 — synthetic linear data (fixed seed for reproducibility) ────────
 _rng_ex1 = np.random.default_rng(42)
@@ -76,6 +76,54 @@ st.set_page_config(
     page_icon=None,
     layout="wide",
 )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Google Analytics consent banner
+# Disable entirely by setting GA_TRACKING_ID = "" in app_config.py
+# ══════════════════════════════════════════════════════════════════════════════
+if GA_TRACKING_ID:
+    if "ga_consent" not in st.session_state:
+        st.session_state["ga_consent"] = None  # None = not yet decided
+
+    if st.session_state["ga_consent"] is None:
+        banner = st.container()
+        with banner:
+            st.markdown(
+                "<div style='background:#f0f2f6;padding:10px 16px;"
+                "border-radius:6px;margin-bottom:8px'>"
+                "This site uses cookies to understand how it is used "
+                "(Google Analytics). No personally identifiable information "
+                "is collected.</div>",
+                unsafe_allow_html=True,
+            )
+            _c1, _c2, _c3 = st.columns([1, 1, 6])
+            with _c1:
+                if st.button("Accept", type="primary",
+                             use_container_width=True, key="_ga_accept"):
+                    st.session_state["ga_consent"] = True
+                    st.rerun()
+            with _c2:
+                if st.button("Decline", use_container_width=True,
+                             key="_ga_decline"):
+                    st.session_state["ga_consent"] = False
+                    st.rerun()
+
+    if st.session_state.get("ga_consent") is True:
+        import streamlit.components.v1 as _components
+        _components.html(
+            f"""
+            <script async
+              src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}">
+            </script>
+            <script>
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){{dataLayer.push(arguments);}}
+              gtag('js', new Date());
+              gtag('config', '{GA_TRACKING_ID}');
+            </script>
+            """,
+            height=0,
+        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Header + editable description from description.md
@@ -304,6 +352,11 @@ def _clear_all():
     st.session_state["cal_y_text"] = ""
     st.session_state["new_y_text"] = ""
 
+st.markdown(
+    "<style>div[data-testid='stVerticalBlockBorderWrapper']"
+    "{background-color:#f0f2f6;}</style>",
+    unsafe_allow_html=True,
+)
 with st.container(border=True):
     st.caption("Load an example or start fresh:")
     _btn_col1, _btn_col2, _btn_col3 = st.columns(3)
@@ -366,18 +419,20 @@ else:
 
 if cal_df is not None:
     st.subheader("Calibration data preview")
-    col_tbl, col_plot = st.columns([1, 2])
-    with col_tbl:
-        st.dataframe(cal_df, use_container_width=True, height=300)
-    with col_plot:
-        fig_scatter, ax_scatter = plt.subplots(figsize=(6, 3.5))
-        ax_scatter.scatter(cal_df["X"], cal_df["Y"], c="black", s=40)
-        ax_scatter.set_xlabel("X")
-        ax_scatter.set_ylabel("Y")
-        ax_scatter.set_title("Calibration data")
-        fig_scatter.tight_layout()
-        st.pyplot(fig_scatter)
-        plt.close(fig_scatter)
+    fig_scatter, ax_scatter = plt.subplots(figsize=(9, 4))
+    ax_scatter.scatter(cal_df["X"], cal_df["Y"], c="black", s=40)
+    ax_scatter.set_xlabel("X")
+    ax_scatter.set_ylabel("Y")
+    ax_scatter.set_title("Calibration data")
+    fig_scatter.tight_layout()
+    st.pyplot(fig_scatter)
+    plt.close(fig_scatter)
+    st.download_button(
+        "Download calibration data CSV",
+        cal_df.to_csv(index=False),
+        file_name="calibration_data.csv",
+        mime="text/csv",
+    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 3 — New Y values
@@ -852,6 +907,12 @@ else:
                     summary_vars.append(vp)
         summary_df = az.summary(trace, var_names=summary_vars)
         st.dataframe(summary_df, use_container_width=True)
+        st.download_button(
+            "Download MCMC summary CSV",
+            summary_df.to_csv(),
+            file_name="mcmc_summary.csv",
+            mime="text/csv",
+        )
 
         # -- Calibration fit plot ------------------------------------------
         st.subheader("Calibration Fit")
@@ -874,14 +935,6 @@ else:
         fig_fit.tight_layout()
         st.pyplot(fig_fit)
         plt.close(fig_fit)
-
-        # -- Inverse solve method ------------------------------------------
-        st.subheader("Inverse solve method")
-        if eq_model_r.has_symbolic_inverse:
-            st.success("Symbolic (closed-form) inverse found:")
-            st.latex(eq_model_r.inverse_latex_str())
-        else:
-            st.info("No closed-form inverse — numerical root-finding was used.")
 
         # ══════════════════════════════════════════════════════════════════
         # Residual Diagnostics
@@ -1112,33 +1165,11 @@ else:
                 "log-space naturally accounts for constant-CV noise."
             )
 
-        with st.expander(
-            "**Are there one or two outliers far from zero?**",
-            expanded=False,
-        ):
-            st.markdown(
-                "Isolated large residuals may indicate data entry errors, "
-                "sample preparation problems, or genuine outliers.\n\n"
-                "**What to try:**\n"
-                "- Double-check the raw data for transcription errors.\n"
-                "- If the outlier is real, consider whether that standard "
-                "should be excluded or whether a more robust model is "
-                "needed.\n"
-                "- As a quick sanity check, remove the suspect point from "
-                "your calibration data and re-run — if the fit improves "
-                "dramatically, that point was likely problematic."
-            )
-
-        with st.expander(
-            "**Do the residuals look random and centred around zero?**",
-            expanded=False,
-        ):
-            st.markdown(
-                "Great — this is what you want to see! If both "
-                "statistical tests also pass (*p* ≥ 0.05), the model "
-                "assumptions appear to be satisfied and you can be "
-                "confident in the inverse predictions below."
-            )
+        st.info(
+            "If the answer to both of the questions above is 'no', "
+            "your model appears to be adequate and you can proceed "
+            "to generating inverse predictions."
+        )
 
         # ══════════════════════════════════════════════════════════════════
         # Inverse Prediction (hidden until button click)
@@ -1151,6 +1182,14 @@ else:
         if st.session_state.get("show_inverse", False):
 
             st.subheader("Inverse Predictions")
+
+            # -- Inverse solve method --------------------------------------
+            if eq_model_r.has_symbolic_inverse:
+                st.success("Symbolic (closed-form) inverse found:")
+                st.latex(eq_model_r.inverse_latex_str())
+            else:
+                st.info("No closed-form inverse — numerical root-finding was used.")
+
             alpha_tail = (1 - credible_level) / 2
             sigma_draws = posterior["sigma"]
             n_draws = len(sigma_draws)
@@ -1321,6 +1360,29 @@ else:
             fig_inv.tight_layout()
             st.pyplot(fig_inv)
             plt.close(fig_inv)
+
+            # -- Download all results as ZIP --------------------------------
+            import io, zipfile
+            st.markdown("---")
+            def _build_zip():
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    if cal_df is not None:
+                        zf.writestr("calibration_data.csv",
+                                    cal_df.to_csv(index=False))
+                    zf.writestr("mcmc_summary.csv", summary_df.to_csv())
+                    zf.writestr("inverse_predictions.csv",
+                                df_result.to_csv(index=False))
+                return buf.getvalue()
+
+            st.download_button(
+                "Download all calibration data and results (ZIP)",
+                _build_zip(),
+                file_name="calibration_results.zip",
+                mime="application/zip",
+                use_container_width=True,
+                type="primary",
+            )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Footer
