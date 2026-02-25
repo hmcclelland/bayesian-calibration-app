@@ -86,44 +86,83 @@ st.set_page_config(
 # Disable entirely by setting GA_TRACKING_ID = "" in app_config.py
 # ══════════════════════════════════════════════════════════════════════════════
 if GA_TRACKING_ID:
+    import streamlit.components.v1 as _components
+
     if "ga_consent" not in st.session_state:
         st.session_state["ga_consent"] = None  # None = not yet decided
 
     if st.session_state["ga_consent"] is None:
-        banner = st.container()
-        with banner:
-            st.markdown(
-                "<div style='background:#f0f2f6;padding:10px 16px;"
-                "border-radius:6px;margin-bottom:8px'>"
-                "This site uses cookies to understand how it is used "
-                "(Google Analytics). No personally identifiable information "
-                "is collected.</div>",
-                unsafe_allow_html=True,
-            )
-            _c1, _c2, _c3 = st.columns([1, 1, 6])
-            with _c1:
-                if st.button("Accept", type="primary",
-                             use_container_width=True, key="_ga_accept"):
-                    st.session_state["ga_consent"] = True
-                    st.rerun()
-            with _c2:
-                if st.button("Decline", use_container_width=True,
-                             key="_ga_decline"):
-                    st.session_state["ga_consent"] = False
-                    st.rerun()
+        st.markdown(
+            "<div style='background:#f0f2f6;padding:10px 16px;"
+            "border-radius:6px;margin-bottom:8px'>"
+            "This site uses cookies to understand how it is used "
+            "(Google Analytics). No personally identifiable information "
+            "is collected.</div>",
+            unsafe_allow_html=True,
+        )
+        _c1, _c2, _c3 = st.columns([1, 1, 6])
+        with _c1:
+            if st.button("Accept", use_container_width=True,
+                         key="_ga_accept"):
+                st.session_state["ga_consent"] = True
+                st.rerun()
+        with _c2:
+            if st.button("Decline", use_container_width=True,
+                         key="_ga_decline"):
+                st.session_state["ga_consent"] = False
+                st.rerun()
+        # Colour the buttons green/red via JS injected into the parent frame
+        _components.html(
+            """
+            <script>
+            (function recolour() {
+                var p = window.parent.document;
+                var btns = p.querySelectorAll('button');
+                var found = 0;
+                btns.forEach(function(b) {
+                    var t = b.innerText.trim();
+                    if (t === 'Accept') {
+                        b.style.cssText +=
+                            'background-color:#28a745!important;'
+                            + 'border-color:#28a745!important;'
+                            + 'color:white!important;';
+                        found++;
+                    }
+                    if (t === 'Decline') {
+                        b.style.cssText +=
+                            'background-color:#dc3545!important;'
+                            + 'border-color:#dc3545!important;'
+                            + 'color:white!important;';
+                        found++;
+                    }
+                });
+                if (found < 2) { setTimeout(recolour, 80); }
+            })();
+            </script>
+            """,
+            height=0,
+        )
 
     if st.session_state.get("ga_consent") is True:
-        import streamlit.components.v1 as _components
+        # Inject GA into the parent frame so Tag Assistant detects it
         _components.html(
             f"""
-            <script async
-              src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}">
-            </script>
             <script>
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){{dataLayer.push(arguments);}}
-              gtag('js', new Date());
-              gtag('config', '{GA_TRACKING_ID}');
+            (function injectGA() {{
+                if (window.parent._gaInjected) return;
+                window.parent._gaInjected = true;
+                var s = window.parent.document.createElement('script');
+                s.async = true;
+                s.src = 'https://www.googletagmanager.com/gtag/js'
+                        + '?id={GA_TRACKING_ID}';
+                window.parent.document.head.appendChild(s);
+                window.parent.dataLayer = window.parent.dataLayer || [];
+                window.parent.gtag = function() {{
+                    window.parent.dataLayer.push(arguments);
+                }};
+                window.parent.gtag('js', new Date());
+                window.parent.gtag('config', '{GA_TRACKING_ID}');
+            }})();
             </script>
             """,
             height=0,
