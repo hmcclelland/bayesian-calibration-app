@@ -69,17 +69,14 @@
 \section{Introduction}
 % =============================================================================
 
-In analytical chemistry and bioassay work a common workflow is to prepare
+In analytical chemistry, bioassay work and any kind of proxy, where one thing is measured to infer the value of something else, a common workflow is to prepare
 standards at known concentrations, measure the instrument response for each,
 and fit a calibration curve.  The practical goal, however, is the
 \emph{reverse}: given a new instrument reading, estimate the unknown
 concentration that produced it.
 
-This is the \textbf{inverse prediction} problem.  Classical approaches
-(Fieller's theorem, Wald intervals) provide approximate confidence intervals
-but rely on asymptotic normality, struggle with nonlinear models, and do not
-fully propagate parameter uncertainty.  A Bayesian treatment resolves these
-limitations naturally: we obtain the full joint posterior of the model
+This is the \textbf{inverse prediction} problem, which is ill-defined in conventional frequentist statistics. A Bayesian treatment resolves this
+limitation naturally: we obtain the full joint posterior of the model
 parameters, then push every source of uncertainty---parameter estimation
 \emph{and} measurement noise---through the inverse to obtain a complete
 distribution over the unknown value.  \citet{gelman2004} demonstrate this
@@ -87,8 +84,7 @@ approach for immunoassay serial dilution data; the method implemented here
 generalises it to arbitrary user-specified calibration functions and variance
 models.
 
-This document derives the method implemented in the accompanying Streamlit
-application.
+This document derives the method implemented in CaliBR.
 
 % =============================================================================
 \section{Notation}
@@ -191,46 +187,13 @@ and the heteroscedastic likelihood is
         \exp\!\biggl[-\frac{(y_i - \mu_i)^{2}}{2\,\sigma_i^{2}}\biggr].
 \end{equation}
 
-\subsection{Built-in Variance Functions}
-
-The application provides three preset choices and a free-form custom entry:
-
-\begin{center}
-\renewcommand{\arraystretch}{1.4}
-\begin{tabular}{lll}
-    \toprule
-    Name & $g(\mu_i,\,\sigma_y;\,\phib)$ & Notes \\
-    \midrule
-    Constant & $\sigma_y$ & Homoscedastic; $\phib = \varnothing$ \\[2pt]
-    Proportional to mean & $\mu_i\,\sigma_y$ & Constant coefficient of variation (CV) \\[2pt]
-    Power-law & $\bigl|\mu_i/A\bigr|^{\gamma}\,\sigma_y$
-        & $A$: geometric mean of $\ycal$;\; $\phib = \{\gamma\}$ \\
-    \bottomrule
-\end{tabular}
-\end{center}
-
-\noindent
-In the power-law model, $\gamma \ge 0$ controls how the noise scales with the
-mean ($\gamma=0$: constant variance; $\gamma=1$: constant CV; $\gamma>1$:
-super-proportional variance), and $A =
-\exp\!\bigl(\tfrac{1}{n}\sum_{i=1}^{n}\log y_i\bigr)$ is a fixed scaling
-constant that makes $\sigma_y$ interpretable as the noise standard deviation at
-a typical measurement level.  \citet{gelman2004} used this power-law form to
-model serial dilution immunoassay data; it subsumes the constant and
-proportional presets as special cases.  For the power-law model we assign
-$\gamma$ a uniform prior on $[0,2]$:
-\begin{equation}\label{eq:prior-gamma}
-    \gamma \;\sim\; \mathrm{Uniform}(0,\,2).
-\end{equation}
-More generally, priors on~$\phib$ are specified by the user in the same way as
-priors on~$\thetab$ (see \Cref{sec:priors}).
 
 % =============================================================================
 \section{Prior Distributions}
 \label{sec:priors}
 % =============================================================================
 
-The application allows the user to choose prior distributions for all
+In CaliBR, the user can choose prior distributions for all
 parameters through the Advanced Options panel.  The defaults are weakly
 informative, independent priors:
 \begin{align}
@@ -270,15 +233,6 @@ magnitudes.  These defaults perform well across a broad class of calibration
 problems.  Users with strong domain knowledge should substitute tighter priors
 via the Advanced Options panel.
 
-\paragraph{Joint prior.}
-Because the priors are independent,
-\begin{equation}\label{eq:joint-prior}
-    p(\thetab,\,\sigma_y,\,\phib)
-    \;=\;
-    \biggl[\prod_{j=1}^{p} p(\theta_j)\biggr]\;p(\sigma_y)\;p(\phib).
-\end{equation}
-When the constant-variance model is used $\phib$ is empty and the last
-factor is absent.
 
 % =============================================================================
 \section{Posterior Distribution}
@@ -396,8 +350,10 @@ ${\sim}\,0.8$.
 \subsection{Problem Statement}
 
 Given a new instrument reading $y^{*}$, we want the posterior predictive
-distribution of the unknown value $x^{*}$ that produced it.  We assume the new
-observation arises from the same process as the calibration data:
+distribution of the unknown value $x^{*}$ that produced it.  
+
+\begin{assumption}[Consistency in generative process between calibration and new observation] 
+We assume that the new observation arises from the same process as the calibration data:
 \begin{equation}\label{eq:new-obs}
     y^{*} \;=\; f(x^{*};\,\thetab) \;+\; \varepsilon^{*},
     \qquad
@@ -409,8 +365,10 @@ where the noise standard deviation is
     \qquad
     \mu^{*} = f(x^{*};\,\thetab).
 \end{equation}
-Because $x^{*}$ is unknown, $\mu^{*}$ is also unknown.  We approximate it by
-substituting the observed value~$y^{*}$ as a plug-in for~$\mu^{*}$:
+Because $x^{*}$ is unknown, $\mu^{*}$ is also unknown.  
+\end{assumption}
+
+We approximate the variance at $x^{*}$ by substituting the observed value~$y^{*}$ as a plug-in for~$\mu^{*}$:
 \begin{equation}\label{eq:sigma-star-approx}
     \sigma^{*} \;\approx\; g\!\bigl(y^{*},\,\sigma_y;\,\phib\bigr).
 \end{equation}
@@ -433,7 +391,6 @@ The target distribution is obtained by marginalising over the posterior:
 This integral propagates \emph{both} parameter uncertainty and measurement
 noise into the prediction.  We evaluate it by Monte Carlo:
 
-\begin{proposition}[Monte Carlo inverse prediction]\label{prop:mc}
 For each posterior draw
 $(\thetab^{(s)},\,\sigma_y^{(s)},\,\phib^{(s)})$, $s=1,\dots,N$:
 \begin{enumerate}[nosep]
@@ -448,22 +405,7 @@ $(\thetab^{(s)},\,\sigma_y^{(s)},\,\phib^{(s)})$, $s=1,\dots,N$:
 \end{enumerate}
 The resulting collection $\{x^{*(s)}\}_{s=1}^{N}$ is a sample from
 $p(x^{*} \mid y^{*},\,\ycal,\,\xcal)$.
-\end{proposition}
 
-\begin{proof}
-Fix a posterior draw $(\thetab,\sigma_y,\phib)$.  By the observation
-model~\eqref{eq:new-obs}, the unknown satisfies
-$x^{*} = f^{-1}(y^{*} - \varepsilon^{*};\,\thetab)$ where
-$\varepsilon^{*}\sim\N(0,\sigma^{*2})$.  Because the Gaussian distribution is
-symmetric, $-\varepsilon^{*}\overset{d}{=}\varepsilon^{*}$, so drawing
-$\tilde{y}^{(s)} = y^{*} + \epsilon^{(s)}$ with
-$\epsilon^{(s)}\sim\N(0,\sigma^{*(s)2})$ and setting
-$x^{*(s)} = f^{-1}(\tilde{y}^{(s)};\,\thetab^{(s)})$ is equivalent in
-distribution to sampling $x^{*} = f^{-1}(y^{*} - \varepsilon^{*};\,\thetab)$.
-Since the draws come from the posterior
-$p(\thetab,\sigma_y,\phib\mid\ycal,\xcal)$, the composition produces
-samples from the marginal~\eqref{eq:ppd}.
-\end{proof}
 
 \subsection{Inversion Methods}
 
@@ -512,8 +454,8 @@ also reports:
 \label{sec:diagnostics}
 % =============================================================================
 
-After fitting the model, the application runs automated diagnostics to help the
-user assess whether the chosen equation and the noise assumptions are adequate.
+After fitting the model, the CaliBR runs automated diagnostics to help the
+user assess whether the chosen equation and the noise assumptions are adequate, before giving the option to proceed to inverting to find $x^{*}$. 
 
 \subsection{Residuals}
 
@@ -565,20 +507,15 @@ applied before fitting.
 
 Based on the diagnostics the application presents the following advice:
 \begin{itemize}[nosep]
-    \item \textbf{Curved or trending residuals:} try a different model (e.g.\
-          add a polynomial term, switch to an exponential or sigmoid function).
-          The chosen functional form does not adequately capture the
-          calibration relationship.
+    \item \textbf{Curved or trending residuals:} The chosen functional form does not adequately capture the
+          calibration relationship, so a different model is required (even if it passes the heteroscedasticity test). This step is best addressed by revisiting the physical principles underlying the mean model equation. Employing purely empirical fits (e.g. arbitrarily adding additional polynomial terms) is not good practice.  
     \item \textbf{Fan-shaped spread in raw residuals:} enable or revise the
           \textbf{variance model} to let the model learn how noise scales with
           the mean response.  Alternatively, apply a variance-stabilising
           transformation such as $\log(y)$ or $\sqrt{y}$ before fitting.
     \item \textbf{Significant Breusch--Pagan test ($p < 0.05$) on standardised
           residuals:} the current variance model does not fully capture the
-          heteroscedasticity; consider a different variance equation.
-    \item \textbf{Random scatter around zero with non-significant test:} the
-          model assumptions appear satisfied and inverse predictions can be
-          trusted.
+          heteroscedasticity; consider a different variance equation.  Note:  The 0.05 significance level is arbitrary, so treat with care. 
 \end{itemize}
 
 % =============================================================================
@@ -613,12 +550,9 @@ Based on the diagnostics the application presents the following advice:
           remaining heteroscedasticity in the standardised residuals; revise
           the variance equation or apply a variance-stabilising transform
           (e.g.\ $\log y$) and re-fit.
-    \item \emph{Non-Gaussian noise.}  Heavy tails may cause credible intervals
-          to undercover.  A Student-$t$ likelihood could be added in future
-          work.
-    \item \emph{Correlated observations.}  If measurements are
-          time-dependent or spatially structured, the independence assumption
-          is violated and intervals will be too narrow.
+    \item \emph{Non-Gaussian noise.}  CaliBR currently assumes Gaussian noise. for most applications this should be fine (future implementations will incorporate alternate noise distributions)
+        \item \emph{Correlated observations.}  Strictly this approach is not designed to estimate uncertainty for measurements that are
+          time-dependent or spatially structured (future implementations will address this).
 \end{itemize}
 
 % =============================================================================
@@ -641,6 +575,12 @@ Based on the diagnostics the application presents the following advice:
     \item \textbf{Numerical inversion:} SciPy's \texttt{brentq} with
           tolerance~$10^{-10}$.
 \end{itemize}
+
+
+\section{Built-in Functions and Examples}
+... to come. 
+
+
 
 % =============================================================================
 \bibliographystyle{plainnat}

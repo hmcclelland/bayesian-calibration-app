@@ -81,7 +81,7 @@ st.set_page_config(
 # ══════════════════════════════════════════════════════════════════════════════
 # Header + editable description from description.md
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("------   CaliBR   ------")
+st.title("CaliBR")
 
 
 _desc_path = pathlib.Path(__file__).parent / "description.md"
