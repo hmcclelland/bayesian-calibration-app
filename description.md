@@ -1,5 +1,7 @@
-Welcome to **CaliBR: the Calibration with Bayesian inverse Regression tool**.
+**Welcome to CaliBR — the Calibration with Bayesian inverse Regression tool.**
 
-Assays and proxies are usually calibrated by fitting instrument signal (Y—e.g., fluorescence, geochemical compositions) against known standards or conditions (X—e.g., metabolite concentrations, temperatures). That works for predicting **Y from X**, because the error model is defined in that direction. But in practice we do the reverse: **we measure a new Y and want to estimate X**. Standard frequentist regression doesn’t naturally give uncertainty for X: we want to know _the range of X values that could reasonably have produced the observed Y_. This question is naturally asked via a Bayesian approach. CaliBR ("calibre") makes it straightforward: pick a model that matches your assay, fit it to your calibration dataset, then enter a new Y value to get an estimate of X with a Bayesian credible interval, or an **inverse prediction interval (IPI)**. Use the web version for manual entry, or download and run it locally to import calibration data as a .csv file.
+Assays and proxies are calibrated by regressing instrument signals (Y—e.g., fluorescence, geochemical compositions) against known standards or conditions (X—e.g., metabolite concentrations, temperatures). When using calibrations to infer X from Y, we need to ask: "What values of X could reasonably have given rise to this new observed **Y**?". Conventional frequentist regression isn’t built for this, but the question is naturally answered with a Bayesian approach.
 
-Developed by the McClelland Lab, UCL.
+**CaliBR** (_“calibre”_) makes this easy. Choose a model appropriate for your assay, fit it to your calibration dataset, and then input a new Y to obtain a posterior estimate of X with a credible interval (or an inverse prediction interval; IPI). Use the web interface for manual entry, or download the tool to import calibration data from a `.csv` file.
+
+_Developed by the McClelland Lab, UCL._
