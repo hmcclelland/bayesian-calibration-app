@@ -81,8 +81,7 @@ st.set_page_config(
 # ══════════════════════════════════════════════════════════════════════════════
 # Header + editable description from description.md
 # ══════════════════════════════════════════════════════════════════════════════
-#st.title("CaliBR: Calibration with Bayesian inverse Regression tool")
-st.markdown("## <div style='text-align: center;'>===  CaliBR  ===</div>", unsafe_allow_html=True)
+st.title("------   CaliBR   ------")
 
 
 _desc_path = pathlib.Path(__file__).parent / "description.md"
