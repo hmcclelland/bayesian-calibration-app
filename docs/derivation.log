@@ -1,6 +1,7 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.11.22)  25 FEB 2026 19:31
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.11.22)  26 FEB 2026 13:44
 entering extended mode
  restricted \write18 enabled.
+ file:line:error style messages enabled.
  %&-line parsing enabled.
 **derivation.tex
 (./derivation.tex
@@ -541,23 +542,29 @@ local/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc}
 ] [2] [3] [4] [5{/usr/local/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm
 -super-ts1.enc}]
 [6] [7]
+
+LaTeX Warning: Reference `ass:diff' on page 1 undefined on input line 599.
+
 LaTeX Font Info:    Trying to load font information for T1+cmtt on input line 6
-41.
- (/usr/local/texlive/2023/texmf-dist/tex/latex/base/t1cmtt.fd
+31.
+(/usr/local/texlive/2023/texmf-dist/tex/latex/base/t1cmtt.fd
 File: t1cmtt.fd 2022/07/10 v2.5l Standard LaTeX font definitions
-) [8]
-[9] (./derivation.aux)
+) [8] [9]
+(./derivation.aux)
+
+LaTeX Warning: There were undefined references.
+
 Package rerunfilecheck Info: File `derivation.out' has not changed.
 (rerunfilecheck)             Checksum: 5B7FD772EE294DD25E30DE30B73B43BF;3789.
  ) 
 Here is how much of TeX's memory you used:
- 14189 strings out of 476025
- 232074 string characters out of 5790016
+ 14187 strings out of 476025
+ 232052 string characters out of 5790016
  1869388 words of memory out of 5000000
- 34351 multiletter control sequences out of 15000+600000
+ 34350 multiletter control sequences out of 15000+600000
  532688 words of font info for 83 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,13n,76p,315b,568s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,13n,76p,315b,594s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb
 ></usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb>
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb><
@@ -581,10 +588,10 @@ texlive/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1095.pfb></usr/local/te
 xlive/2023/texmf-dist/fonts/type1/public/cm-super/sfrm1200.pfb></usr/local/texl
 ive/2023/texmf-dist/fonts/type1/public/cm-super/sfti1095.pfb></usr/local/texliv
 e/2023/texmf-dist/fonts/type1/public/cm-super/sftt1095.pfb>
-Output written on derivation.pdf (9 pages, 407163 bytes).
+Output written on derivation.pdf (9 pages, 407245 bytes).
 PDF statistics:
- 396 PDF objects out of 1000 (max. 8388607)
- 334 compressed objects within 4 object streams
- 96 named destinations out of 1000 (max. 500000)
+ 393 PDF objects out of 1000 (max. 8388607)
+ 331 compressed objects within 4 object streams
+ 95 named destinations out of 1000 (max. 500000)
  185 words of extra memory for PDF output out of 10000 (max. 10000000)
 

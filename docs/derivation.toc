@@ -3,14 +3,14 @@
 \contentsline {section}{\numberline {3}The Calibration Model}{2}{section.3}%
 \contentsline {section}{\numberline {4}Heteroscedastic Variance Model}{3}{section.4}%
 \contentsline {subsection}{\numberline {4.1}Built-in Variance Functions}{3}{subsection.4.1}%
-\contentsline {section}{\numberline {5}Prior Distributions}{4}{section.5}%
+\contentsline {section}{\numberline {5}Prior Distributions}{3}{section.5}%
 \contentsline {paragraph}{Supported prior families.}{4}{section*.2}%
 \contentsline {subsection}{\numberline {5.1}Log-Scale Parameterisation}{4}{subsection.5.1}%
 \contentsline {paragraph}{Rationale.}{4}{section*.3}%
 \contentsline {paragraph}{Joint prior.}{4}{section*.4}%
 \contentsline {section}{\numberline {6}Posterior Distribution}{4}{section.6}%
-\contentsline {section}{\numberline {7}MCMC Sampling via NUTS}{5}{section.7}%
-\contentsline {subsection}{\numberline {7.1}Hamiltonian Monte Carlo}{5}{subsection.7.1}%
+\contentsline {section}{\numberline {7}MCMC Sampling via NUTS}{4}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Hamiltonian Monte Carlo}{4}{subsection.7.1}%
 \contentsline {subsection}{\numberline {7.2}The No-U-Turn Sampler}{5}{subsection.7.2}%
 \contentsline {subsection}{\numberline {7.3}Warm-up, Sampling, and Diagnostics}{5}{subsection.7.3}%
 \contentsline {section}{\numberline {8}Inverse Prediction}{5}{section.8}%

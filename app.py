@@ -81,7 +81,7 @@ st.set_page_config(
 # ══════════════════════════════════════════════════════════════════════════════
 # Header + editable description from description.md
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("Bayesian Calibration & Inverse Prediction")
+st.title("CaliBR: Calibration with Bayesian inverse Regression tool")
 
 _desc_path = pathlib.Path(__file__).parent / "description.md"
 if _desc_path.exists():

@@ -51,7 +51,7 @@
 % =============================================================================
 
 \begin{center}
-    {\LARGE\bfseries Bayesian Calibration \&\\[4pt] Inverse Prediction}\\[14pt]
+    {\LARGE\bfseries CaliBR: Calibration with Bayesian inverse Regression}\\[14pt]
     {\large Mathematical Derivation and Assumptions}\\[10pt]
     {\normalsize McClelland Lab, University College London}\\[4pt]
     {\small\today}
@@ -122,19 +122,16 @@ application.
 \label{sec:model}
 % =============================================================================
 
-We begin with three assumptions that define the generative model for the
-calibration data.
+Two primary assumptions define the generative model: 
 
-\begin{assumption}[Calibration function]\label{ass:func}
+\begin{assumption}[Directionality of relationship between variables:] \label{ass:func}
 The relationship between the known value $x$ and the instrument response $y$ is
 described by a parametric function $f:\R\times\R^p\to\R$, specified by the
-user.  For example, $f(x;\,a,b)=a+bx$, or $f(x;\,a,b)=a\,e^{bx}$.  We require
-$f$ to be continuous and differentiable almost everywhere with respect to both
-$x$ and~$\thetab$.
+user.  For example, $f(x;\,a,b)=a+bx$, or $f(x;\,a,b)=a\,e^{bx}$.  $x$ is independent and its value is known with absolute certainty, while $y$ is dependent on $x$ and is associated with a defined uncertainty. 
 \end{assumption}
 
-\begin{assumption}[Gaussian noise]\label{ass:noise}
-Each observation equals the true mean response plus independent Gaussian noise.
+\begin{assumption}[Structure of unexplained variance:] \label{ass:noise}
+Each observation equals the true mean response plus independent {\bf Gaussian noise}.
 In the simplest (homoscedastic) case the noise has constant standard
 deviation~$\sigma_y$:
 \begin{equation}\label{eq:obs-model}
@@ -146,13 +143,6 @@ deviation~$\sigma_y$:
 The noise terms are mutually independent and independent of the standard
 values~$x_i$.  An extension to non-constant variance is described in
 \Cref{sec:hetero}.
-\end{assumption}
-
-\begin{assumption}[Differentiability]\label{ass:diff}
-The log-posterior is differentiable with respect to all continuous parameters.
-This is guaranteed by the SymPy-parsed equation and PyTensor's automatic
-differentiation, and is required by the gradient-based NUTS sampler
-(\Cref{sec:nuts}).
 \end{assumption}
 
 \noindent
